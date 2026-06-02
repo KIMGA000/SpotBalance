@@ -37,7 +37,9 @@ jobs:
       # 2. [가장 중요] 리액트 생 원본을 브라우저가 읽을 수 있는 진짜 자바스크립트 완제품(dist 폴더)으로 구워내기
       - name: Build React App
         run: npm run build
-
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_KEY }}
       - name: Setup GitHub Pages Config
         uses: actions/configure-pages@v5
 
