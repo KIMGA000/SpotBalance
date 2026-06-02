@@ -1,9 +1,8 @@
-# Vite 리액트 앱을 빌드하여 GitHub Pages에 정밀 배포하는 워크플로우
 name: Deploy SpotBalance to Pages
 
 on:
   push:
-    branches: ["main"] # main 브랜치에 코드가 올라올 때마다 작동
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -22,32 +21,32 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js Environment
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      # 🌟 [치트키 과정 1] 라이브러리 자동 설치
-      - name: Install dependencies
+      # 1. 완제품을 요리하기 위해 필요한 리액트 라이브러리들 원격 자동 설치
+      - name: Install Dependencies
         run: npm ci
 
-      # 🌟 [치트키 과정 2] 순수 브라우저가 읽을 수 있는 진짜 완제품(dist 폴더) 구워내기
+      # 2. [가장 중요] 리액트 생 원본을 브라우저가 읽을 수 있는 진짜 자바스크립트 완제품(dist 폴더)으로 구워내기
       - name: Build React App
         run: npm run build
 
-      - name: Setup Pages
+      - name: Setup GitHub Pages Config
         uses: actions/configure-pages@v5
 
-      # 🌟 [치트키 과정 3] 압축 완료된 dist 폴더만 쏙 골라내서 업로드
-      - name: Upload artifact
+      # 3. 껍데기 폴더 말고 오직 완제품이 담긴 'dist' 폴더 내부만 골라내서 업로드하기
+      - name: Upload Build Artifacts
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages Live
         id: deployment
         uses: actions/deploy-pages@v5
