@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "serviceName": "단기예보 조회서비스(2.0)",
+    "lastUpdated": "2024-11-28",
+    "missingValueThreshold": {
+      "upper": 900,
+      "lower": -900,
+      "description": "이상 값은 결측치(Missing)로 처리"
+    }
+  },
+  "apiSchedules": {
+    "VilageFcst": {
+      "description": "단기예보 (1일 8회 발표, 향후 몇 일간의 예측 점수용)",
+      "schedule": [
+        "0200",
+        "0500",
+        "0800",
+        "1100",
+        "1400",
+        "1700",
+        "2000",
+        "2300"
+      ],
+      "apiAvailableMinutesAfter": 10
+    },
+    "UltraSrtNcst": {
+      "description": "초단기실황 (매시간 정시 생성, '지금 당장'의 실시간 점수용)",
+      "schedule": [
+        "0000",
+        "0100",
+        "0200",
+        "0300",
+        "0400",
+        "0500",
+        "0600",
+        "0700",
+        "0800",
+        "0900",
+        "1000",
+        "1100",
+        "1200",
+        "1300",
+        "1400",
+        "1500",
+        "1600",
+        "1700",
+        "1800",
+        "1900",
+        "2000",
+        "2100",
+        "2200",
+        "2300"
+      ],
+      "apiAvailableMinutesAfter": 10
+    }
+  },
+  "elements": {
+    "SKY": {
+      "name": "하늘상태 (단기/초단기예보 전용)",
+      "type": "CODE",
+      "mapping": {
+        "1": {
+          "text": "맑음",
+          "cloudCover": "0~5",
+          "recommendationModifier": 0
+        },
+        "3": {
+          "text": "구름많음",
+          "cloudCover": "6~8",
+          "recommendationModifier": -5
+        },
+        "4": {
+          "text": "흐림",
+          "cloudCover": "9~10",
+          "recommendationModifier": -10
+        }
+      }
+    },
+    "PTY": {
+      "name": "강수형태 (공통)",
+      "type": "CODE",
+      "mapping": {
+        "0": {
+          "text": "없음",
+          "isPrecipitation": false,
+          "recommendationModifier": 0
+        },
+        "1": {
+          "text": "비",
+          "isPrecipitation": true,
+          "recommendationModifier": -40
+        },
+        "2": {
+          "text": "비/눈",
+          "isPrecipitation": true,
+          "recommendationModifier": -45
+        },
+        "3": {
+          "text": "눈",
+          "isPrecipitation": true,
+          "recommendationModifier": -30
+        },
+        "4": {
+          "text": "소나기",
+          "isPrecipitation": true,
+          "recommendationModifier": -35
+        },
+        "5": {
+          "text": "빗방울 (초단기 전용)",
+          "isPrecipitation": true,
+          "recommendationModifier": -10
+        },
+        "6": {
+          "text": "빗방울눈날림 (초단기 전용)",
+          "isPrecipitation": true,
+          "recommendationModifier": -15
+        },
+        "7": {
+          "text": "눈날림 (초단기 전용)",
+          "isPrecipitation": true,
+          "recommendationModifier": -10
+        }
+      }
+    },
+    "T1H": {
+      "name": "기온 (초단기실황/예보 전용)",
+      "type": "VALUE",
+      "unit": "℃"
+    },
+    "TMP": {
+      "name": "1시간 기온 (단기예보 전용)",
+      "type": "VALUE",
+      "unit": "℃"
+    },
+    "RN1": {
+      "name": "1시간 강수량 (초단기실황/예보 전용)",
+      "type": "VALUE",
+      "unit": "mm"
+    },
+    "PCP": {
+      "name": "1시간 강수량 (단기예보 전용)",
+      "type": "CATEGORICAL_VALUE",
+      "unit": "mm"
+    },
+    "REH": { "name": "습도 (공통)", "type": "VALUE", "unit": "%" },
+    "WSD": { "name": "풍속 (공통)", "type": "VALUE", "unit": "m/s" },
+    "VEC": { "name": "풍향 (공통)", "type": "VALUE", "unit": "deg" }
+  },
+  "vectorConversion": {
+    "VEC_16_DIRECTIONS": [
+      "N",
+      "NNE",
+      "NE",
+      "ENE",
+      "E",
+      "ESE",
+      "SE",
+      "SSE",
+      "S",
+      "SSW",
+      "SW",
+      "WSW",
+      "W",
+      "WNW",
+      "NW",
+      "NNW",
+      "N"
+    ],
+    "formula": "floor((VEC + 22.5 * 0.5) / 22.5)"
+  }
+}

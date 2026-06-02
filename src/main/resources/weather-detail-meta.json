@@ -1,0 +1,58 @@
+{
+  "missingValue": {
+    "upperThreshold": 900,
+    "lowerThreshold": -900,
+    "description": "값의 절댓값이 900 이상이면 장비 결측 또는 해양 마스킹이므로 데이터 없음 처리"
+  },
+  "qualitativeCodes": {
+    "PCP": {
+      "name": "강수량 정성정보",
+      "1": {
+        "term": "약한 비",
+        "meaning": "시간당 3mm 미만의 약한 비",
+        "riskLevel": "LOW"
+      },
+      "2": {
+        "term": "보통 비",
+        "meaning": "시간당 3mm 이상 15mm 미만의 보통 비",
+        "riskLevel": "MEDIUM"
+      },
+      "3": {
+        "term": "강한 비",
+        "meaning": "시간당 15mm 이상의 강한 비",
+        "riskLevel": "HIGH"
+      }
+    },
+    "SNO": {
+      "name": "눈의 양 정성정보",
+      "1": {
+        "term": "보통 눈",
+        "meaning": "시간당 1cm 미만의 보통 눈",
+        "riskLevel": "MEDIUM"
+      },
+      "2": {
+        "term": "많은 눈",
+        "meaning": "시간당 1cm 이상의 많은 눈",
+        "riskLevel": "HIGH"
+      }
+    },
+    "WSD": {
+      "name": "바람 세기 정성정보",
+      "1": {
+        "term": "약한 바람",
+        "meaning": "4m/s 미만의 약한 바람",
+        "riskLevel": "LOW"
+      },
+      "2": {
+        "term": "약간 강한 바람",
+        "meaning": "4m/s 이상 9m/s 미만의 약간 강한 바람",
+        "riskLevel": "MEDIUM"
+      },
+      "3": {
+        "term": "강한 바람",
+        "meaning": "9m/s 이상의 강한 바람",
+        "riskLevel": "HIGH"
+      }
+    }
+  }
+}
