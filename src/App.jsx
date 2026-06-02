@@ -441,7 +441,7 @@ function App() {
             <MountainSilhouette />
             <SailboatSilhouette />
 
-            <div className="main-card relative max-w-[780px] !py-6 !px-6 md:!py-7 md:!px-8">
+            <div class="main-card relative max-w-[860px] !py-6 !px-6 md:!py-7 md:!px-8">
               {/* 첫 번째 줄: 출발지 설정, 여행 날짜, 이동 시간 */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
                 <div className="h-full md:col-span-4">
