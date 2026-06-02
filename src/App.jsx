@@ -207,10 +207,9 @@ function App() {
     initializeAppServices();
   }, []);
 
-  // ==========================================
-  // 🔮 [알고리즘 교정] 대분류 배열(text[]) 검사 후 중분류 정밀 매칭
-  // ==========================================
+  // 대분류 배열(text[]) 검사 후 중분류 정밀 매칭
   const handleGetRecommendations = async () => {
+    document.body.style.overflow = "unset";
     if (selectedStyles.length === 0) {
       alert(
         "더 정확한 맞춤 추천을 위해 취향 설정을 최소 1개 이상 선택해 주세요! 😉",
