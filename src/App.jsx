@@ -36,7 +36,7 @@ import {
 import { RecommendationCard } from "./components/RecommendationCard";
 import { ServiceIntro } from "./components/ServiceIntro";
 import { getVilageFcstBaseTime } from "./utils/weatherTimeCalculator";
-
+import { KakaoMapView } from "./components/KakaoMapView";
 // ==========================================
 // 1. Supabase 초기화 설정
 // ==========================================
@@ -122,10 +122,10 @@ function App() {
     "10대",
     "20대",
     "30대",
-    "40~50대",
-    "50~60대",
-    "가족여행",
-    "효도 여행",
+    "40대",
+    "50대",
+    "60대",
+    "70대 이상",
   ];
   const genderOptions = ["여성", "남성"];
   const travelTimeOptions = [
@@ -180,25 +180,29 @@ function App() {
           });
         }
 
-        const { data: configData, error: configError } = await supabase
-          .from("app_config")
-          .select("key_value")
-          .eq("key_name", "KAKAO_MAP_KEY")
-          .single();
+        const kakaoMapApiKey = import.meta.env.VITE_KAKAO_MAP_KEY;
 
-        if (configError) throw configError;
-        const kakaoApiKey = configData?.key_value;
+        if (kakaoMapApiKey) {
+          // 이미 스크립트가 로드되어 있다면 중복 생성을 방지합니다.
+          if (document.getElementById("kakao-map-script")) {
+            console.log("🗺️ 카카오맵 스크립트가 이미 로드되어 있습니다.");
+            return;
+          }
 
-        if (kakaoApiKey) {
           const script = document.createElement("script");
+          script.id = "kakao-map-script";
           script.async = true;
-          script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoApiKey}&libraries=services&autoload=false`;
+          script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapApiKey}&libraries=services&autoload=false`;
           script.onload = () => {
             window.kakao.maps.load(() => {
-              console.log("🗺️ 카카오맵 구동 완료!");
+              console.log("🗺️ 카카오맵 구동 완료! (.env 로드 성공)");
             });
           };
           document.head.appendChild(script);
+        } else {
+          console.warn(
+            "⚠️ VITE_KAKAO_MAP_KEY가 .env 파일에 정의되지 않았습니다.",
+          );
         }
       } catch (error) {
         console.error("인프라 초기화 실패:", error);
@@ -209,6 +213,14 @@ function App() {
 
   // 대분류 배열(text[]) 검사 후 중분류 정밀 매칭
   const handleGetRecommendations = async () => {
+    // [가영님 비밀 검증 로그]
+    console.log("=========================================");
+    console.log("🚀 SpotBalance 하버사인 연산 엔진 가동");
+    console.log("출발지 좌표:", selectedOrigin?.lat, ",", selectedOrigin?.lng);
+    console.log("여행 날짜:", travelDate);
+    console.log("선택 시간:", travelTime);
+    console.log("=========================================");
+
     document.body.style.overflow = "unset";
     if (selectedStyles.length === 0) {
       alert(
@@ -233,7 +245,7 @@ function App() {
       "토요일",
     ];
 
-    // 🌟 1단계: 클릭된 subs들의 부모 대분류 국문 꼬리표('자연관광', '체험관광' 등) 동적 식별 연산
+    // 대분류 국문 꼬리표 식별
     const targetMainLabels = [];
     Object.keys(TASTE_DATA_CONFIG).forEach((mainKey) => {
       const subsInMain = TASTE_DATA_CONFIG[mainKey];
@@ -246,23 +258,83 @@ function App() {
     });
 
     try {
+      // 🌟 Supabase에서 데이터 호출
       const { data, error } = await supabase.from("spots").select(`
           id, spot_name, spot_description, address, image_url, is_always_open,
           open_time, close_time, last_entry_time, is_no_holiday, rest_weekly_days, 
-          category_main, category_mid, category_sub,
+          category_main, category_mid, category_sub, lat, lng,
           spot_visitor_trends (visitor_count, target_date)
         `);
 
       if (error) throw error;
-
       if (!data || data.length === 0) {
         alert("관광지 데이터를 찾을 수 없습니다.");
         setIsLoading(false);
         return;
       }
 
+      // 하버사인 공식 계산 함수
+      const getHaversineDistance = (lat1, lon1, lat2, lon2) => {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * (Math.PI / 180);
+        const dLon = (lon2 - lon1) * (Math.PI / 180);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * (Math.PI / 180)) *
+            Math.cos(lat2 * (Math.PI / 180)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      const dateObj = new Date(queryDate);
+      const dayOfWeek = dateObj.getDay();
+      const formattedTravelDate = queryDate.substring(5, 10);
+
+      const publicHolidays = [
+        "01-01",
+        "02-16",
+        "02-17",
+        "02-18",
+        "03-01",
+        "03-02",
+        "05-05",
+        "05-06",
+        "06-06",
+        "08-15",
+        "08-17",
+        "09-24",
+        "09-25",
+        "09-26",
+        "10-03",
+        "10-05",
+        "10-09",
+        "12-25",
+      ];
+
+      const isWeekendOrHoliday =
+        dayOfWeek === 0 ||
+        dayOfWeek === 5 ||
+        dayOfWeek === 6 ||
+        publicHolidays.includes(formattedTravelDate);
+
+      const currentSpeed = isWeekendOrHoliday ? 60 : 80;
+      const maxHours = parseFloat(travelTime.replace(/[^0-9.]/g, ""));
+      const maxAllowedDistance = maxHours * currentSpeed;
+
+      console.log("-----------------------------------------");
+      console.log(
+        `⏱️ 적용 시속: ${currentSpeed}km/h | 선택 시간: ${maxHours}시간`,
+      );
+      console.log(
+        `🎯 [필터 컷트라인] 출발지로부터 딱 '${maxAllowedDistance.toFixed(1)}km' 이내인 관광지만 합격시킵니다!`,
+      );
+      console.log("-----------------------------------------");
+
       const filteredResults = [];
 
+      // 1차전: 대/중분류 매칭 및 하버사인 반경 필터링 수행
       data.forEach((spot) => {
         const trendData = spot.spot_visitor_trends?.find(
           (t) => t.target_date === queryDate,
@@ -272,7 +344,6 @@ function App() {
           : Math.floor(Math.random() * 30) + 5;
         const congestionScore = Math.min(100, Math.round(rawVisitorRate * 1.5));
 
-        // 🌟 2단계: text[] 데이터 컴포넌트 안전 배열화
         const spotMains = Array.isArray(spot.category_main)
           ? spot.category_main
           : [spot.category_main].filter(Boolean);
@@ -280,70 +351,184 @@ function App() {
           ? spot.category_mid
           : [spot.category_mid].filter(Boolean);
 
-        // 🌟 3단계: 대분류 실시간 교집합 연산 ('자연관광', '체험관광' 검사)
         const isMainMatched = spotMains.some((mainVal) =>
           targetMainLabels.includes(mainVal),
         );
 
         if (isMainMatched) {
-          // 🌟 4단계: 중분류 실시간 교집합 연산 ('동물원', '바다', '산' 검사)
           let matchedSubCount = 0;
           selectedStyles.forEach((style) => {
             if (spotMids.includes(style)) matchedSubCount++;
           });
 
-          // 🌟 5단계: 중분류 매칭이 단 1개라도 성공했다면 필터 최종 합격 처리!
           if (matchedSubCount > 0) {
-            const suitabilityScore = 75 + matchedSubCount * 8;
-            const finalScore = Math.round(
-              (suitabilityScore + (100 - congestionScore)) / 2,
+            if (
+              !spot.lat ||
+              !spot.lng ||
+              !selectedOrigin?.lat ||
+              !selectedOrigin?.lng
+            )
+              return;
+
+            const distanceKm = getHaversineDistance(
+              Number(selectedOrigin.lat),
+              Number(selectedOrigin.lng),
+              Number(spot.lat),
+              Number(spot.lng),
             );
 
-            let formattedHours = "상시 개방";
-            if (!spot.is_always_open && spot.open_time && spot.close_time) {
-              formattedHours = `${spot.open_time.substring(0, 5)}~${spot.close_time.substring(0, 5)}`;
-            }
+            const estimatedTime = distanceKm / currentSpeed;
 
-            let formattedClosed = "연중무휴";
-            if (
-              !spot.is_no_holiday &&
-              spot.rest_weekly_days &&
-              spot.rest_weekly_days.length > 0
-            ) {
-              formattedClosed = `매주 ${spot.rest_weekly_days.map((d) => WEEK_DAYS[d]).join(", ")}`;
-            }
+            // 하버사인 반경 이내에 드는 1차 합격자만 모으기
+            if (estimatedTime <= maxHours) {
+              const suitabilityScore = 75 + matchedSubCount * 8;
+              const finalScore = Math.round(
+                (suitabilityScore + (100 - congestionScore)) / 2,
+              );
 
-            filteredResults.push({
-              name: spot.spot_name || "강원도 맞춤 명소",
-              subtitle:
-                spot.spot_description ||
-                "낭만과 데이터가 가득한 강원도 추천 플레이스",
-              score: Math.min(99, finalScore),
-              congestion: congestionScore,
-              suitability: Math.min(100, suitabilityScore),
-              hours: formattedHours,
-              closed: formattedClosed,
-              address: spot.address || "강원특별자치도",
-              weather: gangwonWeather.text,
-              icon: gangwonWeather.icon,
-              image: spot.image_url,
-            });
+              let formattedHours = "상시 개방";
+              if (!spot.is_always_open && spot.open_time && spot.close_time) {
+                formattedHours = `${spot.open_time.substring(0, 5)}~${spot.close_time.substring(0, 5)}`;
+              }
+
+              let formattedClosed = "연중무휴";
+              if (
+                !spot.is_no_holiday &&
+                spot.rest_weekly_days &&
+                spot.rest_weekly_days.length > 0
+              ) {
+                formattedClosed = `매주 ${spot.rest_weekly_days.map((d) => WEEK_DAYS[d]).join(", ")}`;
+              }
+
+              filteredResults.push({
+                name: spot.spot_name || "강원도 맞춤 명소",
+                subtitle:
+                  spot.spot_description ||
+                  "낭만과 데이터가 가득한 강원도 추천 플레이스",
+                score: Math.min(99, finalScore),
+                congestion: congestionScore,
+                suitability: Math.min(100, suitabilityScore),
+                hours: formattedHours,
+                closed: formattedClosed,
+                address: spot.address || "강원특별자치도",
+                weather: gangwonWeather.text,
+                icon: gangwonWeather.icon,
+                image: spot.image_url,
+                lat: spot.lat,
+                lng: spot.lng,
+                distance: distanceKm.toFixed(1),
+                duration: estimatedTime.toFixed(1),
+              });
+            }
           }
         }
       });
 
-      // 스코어 랭킹순으로 정렬
-      filteredResults.sort((a, b) => b.score - a.score);
-
-      // 🌟 [기획 전제 반영] 있는 개수만큼만 출력 (상한선 슬라이스 10개 고정)
-      const finalSliceResults = filteredResults.slice(0, 10);
-
-      if (finalSliceResults.length === 0) {
+      // ❌ 예외 처리: 하버사인 반경 내에 아무도 없으면 중단
+      if (filteredResults.length === 0) {
         alert(
-          "선택하신 세부 취향 조건에 부합하는 장소가 강원도 내에 존재하지 않습니다. 다른 스타일을 선택해 보세요! ☺️",
+          "선택하신 반경 조건에 맞는 장소가 너무 멀리 있습니다. 시간을 조금 더 늘려보세요! ☺️",
         );
         setIsLoading(false);
         return;
+      }
+
+      // 🌟 [가영님 아이디어 반영] 하버사인 결과 중 소요시간(거리)이 짧은 순으로 상위 20개만 먼저 슬라이스!
+      // 이렇게 하면 135개 전체를 호출하지 않고 가장 유력한 20개만 카카오 API에 조회하므로 렉이 전혀 안 걸립니다.
+      const top20FilteredResults = filteredResults
+        .sort((a, b) => parseFloat(a.duration) - parseFloat(b.duration))
+        .slice(0, 20);
+
+      console.log(
+        `🚗 하버사인 1차 합격자 ${filteredResults.length}개 중 상위 ${top20FilteredResults.length}개를 추려 카카오 실제 내비망 연산 개시`,
+      );
+
+      const startLat = selectedOrigin.lat;
+      const startLon = selectedOrigin.lng;
+
+      // 카카오 실제 자동차 길찾기 및 vertexes 수집 (filteredResults 대신 top20FilteredResults로 맵핑합니다)
+      const finalKakaoMatchedResults = await Promise.all(
+        top20FilteredResults.map(async (spot) => {
+          try {
+            const originParam = `${startLon},${startLat}`;
+            const destinationParam = `${spot.lng},${spot.lat}`;
+
+            const url = `https://apis-navi.kakaomobility.com/v1/directions?origin=${originParam}&destination=${destinationParam}&summary=false&priority=TIME`;
+
+            // 🌟 [교정] Supabase 연동 대신 .env에서 직접 따끈따끈한 REST 키를 가져옵니다!
+            const apiKey = import.meta.env.VITE_KAKAO_REST_KEY;
+
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `KakaoAK ${apiKey}`, // 401 인증 가드 해제!
+                "Content-Type": "application/json",
+              },
+            });
+
+            const naviData = await response.json();
+
+            if (
+              naviData.routes &&
+              naviData.routes[0] &&
+              naviData.routes[0].result_code === 0
+            ) {
+              const route = naviData.routes[0];
+              const summary = route.summary;
+
+              let allVertexes = [];
+              if (route.sections) {
+                route.sections.forEach((section) => {
+                  if (section.roads) {
+                    section.roads.forEach((road) => {
+                      if (road.vertexes) {
+                        allVertexes = allVertexes.concat(road.vertexes);
+                      }
+                    });
+                  }
+                });
+              }
+
+              console.log(
+                `🎯 [카카오 실시간] ${spot.name} | 실제도로: ${(summary.distance / 1000).toFixed(1)}km | 실제내비: ${(summary.duration / 3600).toFixed(1)}시간`,
+              );
+
+              return {
+                ...spot,
+                distance: (summary.distance / 1000).toFixed(1),
+                duration: (summary.duration / 3600).toFixed(1),
+                pathVertexes: allVertexes,
+              };
+            }
+          } catch (naviErr) {
+            console.error(
+              `${spot.name} 카카오 API 연동 실패 (하버사인 데이터 유지):`,
+              naviErr,
+            );
+          }
+          return spot;
+        }),
+      );
+
+      // ====================================================
+      // 🌟 카카오 실제 내비 시간 기준 '최단 시간 순' 필터 및 최종 정렬
+      // ====================================================
+      const finalFilterAndSorted = finalKakaoMatchedResults
+        .filter((spot) => parseFloat(spot.duration) <= maxHours)
+        .sort((a, b) => parseFloat(a.duration) - parseFloat(b.duration));
+
+      let finalSliceResults = [];
+
+      if (finalFilterAndSorted.length >= 3) {
+        // 최종 통과자 중 가장 최단 시간 랭킹 10개 표출
+        finalSliceResults = finalFilterAndSorted.slice(0, 10);
+      } else {
+        console.log(
+          "⚠️ 실제 교통 정체로 시간 내 도달 가능한 곳이 3개 미만입니다. 도로망 기준 가장 가까운 3개를 보충합니다.",
+        );
+        finalSliceResults = finalKakaoMatchedResults
+          .sort((a, b) => parseFloat(a.duration) - parseFloat(b.duration))
+          .slice(0, 3);
       }
 
       setRecommendations(finalSliceResults);
@@ -351,7 +536,7 @@ function App() {
       showScreen("screen-result");
     } catch (err) {
       console.error(err);
-      alert("취향 매칭 연산 도중 예기치 못한 장애가 생겼습니다.");
+      alert("취향 매칭 및 이동 시간 연산 도중 예기치 못한 장애가 생겼습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -441,7 +626,7 @@ function App() {
             <MountainSilhouette />
             <SailboatSilhouette />
 
-            <div class="main-card relative max-w-[860px] !py-6 !px-6 md:!py-7 md:!px-8">
+            <div className="main-card relative max-w-[860px] !py-6 !px-6 md:!py-7 md:!px-8">
               {/* 첫 번째 줄: 출발지 설정, 여행 날짜, 이동 시간 */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
                 <div className="h-full md:col-span-4">
@@ -659,21 +844,19 @@ function App() {
                   선택지:{" "}
                   {recommendations[selectedPlaceIndex]?.name || "선택 전"}
                 </div>
+                <div className="text-[11px] sb-font-h opacity-80 mb-1">
+                  선택지:{" "}
+                  {recommendations[selectedPlaceIndex]?.name || "선택 전"}
+                </div>
+                {/* 🌟 기존 가짜 시간 배열 삭제 후, 카카오 실제 연산 내비 시간(시간 단위) 노출 */}
                 <div className="text-4xl sb-font-h italic">
-                  {
-                    [
-                      "2H 10M",
-                      "3H 30M",
-                      "2H 45M",
-                      "4H 05M",
-                      "3H 15M",
-                      "3H 50M",
-                      "4H 20M",
-                      "2H 55M",
-                      "3H 40M",
-                      "4H 30M",
-                    ][selectedPlaceIndex % 10]
-                  }
+                  {recommendations[selectedPlaceIndex]
+                    ? `${recommendations[selectedPlaceIndex].duration} Hour`
+                    : "0.0 Hour"}
+                </div>
+                <div className="text-[13px] font-bold text-[#6B5FD8] mt-1">
+                  실 주행 거리:{" "}
+                  {recommendations[selectedPlaceIndex]?.distance || 0} km
                 </div>
                 <div className="text-[10px] sb-font-h opacity-40 mt-2">
                   ※ 예상 소요시간은 실시간 교통정보에 따라 변동될 수 있습니다.
@@ -682,64 +865,17 @@ function App() {
             )}
           </div>
 
-          <div className="flex-grow relative bg-[#E5E7EB] overflow-hidden">
-            <div
-              className="absolute inset-0 bg-[#D9E4E0]"
-              style={{
-                backgroundImage:
-                  "radial-gradient(#C4CEC9 2px, transparent 2px)",
-                backgroundSize: "40px 40px",
-                opacity: 0.6,
-              }}></div>
-
-            <div className="absolute left-[150px] top-[700px] -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center">
-              <div className="w-9 h-9 bg-white rounded-full border-[5px] border-[#6B5FD8] shadow-2xl"></div>
-              <div className="bg-white px-2 py-1 rounded-md text-[10px] sb-font-h mt-2 shadow-sm border border-gray-100">
-                출발: {origin}
+          <div className="flex-grow relative bg-white overflow-hidden">
+            {recommendations.length > 0 ? (
+              <KakaoMapView
+                startOrigin={selectedOrigin}
+                targetSpot={recommendations[selectedPlaceIndex]}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-gray-400 font-bold">
+                추천된 경로 데이터가 존재하지 않습니다.
               </div>
-            </div>
-
-            {recommendations.map((pos, idx) => {
-              const currentPos = mapPositions[idx % mapPositions.length];
-              return (
-                <div
-                  key={idx}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center cursor-pointer transition-transform hover:scale-110"
-                  style={{
-                    left: `${currentPos[0]}px`,
-                    top: `${currentPos[1]}px`,
-                  }}
-                  onClick={() => setSelectedPlaceIndex(idx)}>
-                  <div
-                    className={`${selectedPlaceIndex === idx ? "bg-[#6B5FD8] w-12 h-12 animate-bounce" : "bg-gray-500 w-10 h-10"} rounded-full border-[5px] border-white flex items-center justify-center shadow-2xl transition-all`}>
-                    <span className="text-white text-xs sb-font-h font-bold">
-                      {idx + 1}
-                    </span>
-                  </div>
-                  {selectedPlaceIndex === idx && (
-                    <div className="bg-[#2D2A4A] text-white px-3 py-1.5 rounded-lg text-[11px] sb-font-h mt-2 shadow-xl whitespace-nowrap">
-                      {recommendations[idx]?.name}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            <svg
-              className="absolute inset-0 w-full h-full z-10 pointer-events-none"
-              viewBox="0 0 1000 1000">
-              {currentMapPos && (
-                <path
-                  d={`M 150 700 L ${currentMapPos[0]} ${currentMapPos[1]}`}
-                  fill="none"
-                  stroke="#6B5FD8"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray="1,15"
-                  className="animate-[dash_12s_linear_infinite]"
-                />
-              )}
-            </svg>
+            )}
           </div>
         </main>
       </div>
