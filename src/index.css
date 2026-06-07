@@ -243,7 +243,7 @@ body {
 
 .gradient-text {
   background: linear-gradient(135deg, #2d2a4a 0%, #6b5fd8 100%);
-  -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   font-family: "Apple SD Gothic NeoH", sans-serif;
 }
