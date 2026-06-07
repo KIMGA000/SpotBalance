@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./index.css";
 import { createClient } from "@supabase/supabase-js";
 
-// 최신 lucide-react 패키지 아이콘 적용
 import {
   Sun,
   CloudSun,
@@ -19,7 +18,6 @@ import {
   Sparkles,
 } from "lucide-react";
 
-// 분리된 자식 컴포넌트 파일들 정밀 연동
 import {
   MountainSilhouette,
   SailboatSilhouette,
@@ -44,7 +42,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// 🌟 [정밀 조치] 가영님이 짚어주신 데이터베이스 실제 라벨 규칙 명세 완전 동기화
+// 데이터베이스 실제 라벨 규칙 명세 완전 동기화
 const MAIN_LABEL_MAP = {
   nature: "자연관광",
   history: "역사관광",
@@ -183,7 +181,6 @@ function App() {
         const kakaoMapApiKey = import.meta.env.VITE_KAKAO_MAP_KEY;
 
         if (kakaoMapApiKey) {
-          // 이미 스크립트가 로드되어 있다면 중복 생성을 방지합니다.
           if (document.getElementById("kakao-map-script")) {
             console.log("🗺️ 카카오맵 스크립트가 이미 로드되어 있습니다.");
             return;
@@ -213,7 +210,6 @@ function App() {
 
   // 대분류 배열(text[]) 검사 후 중분류 정밀 매칭
   const handleGetRecommendations = async () => {
-    // [가영님 비밀 검증 로그]
     console.log("=========================================");
     console.log("🚀 SpotBalance 하버사인 연산 엔진 가동");
     console.log("출발지 좌표:", selectedOrigin?.lat, ",", selectedOrigin?.lng);
@@ -433,7 +429,7 @@ function App() {
         return;
       }
 
-      // 🌟 [가영님 아이디어 반영] 하버사인 결과 중 소요시간(거리)이 짧은 순으로 상위 20개만 먼저 슬라이스!
+      // 하버사인 결과 중 소요시간(거리)이 짧은 순으로 상위 20개만 먼저 슬라이스!
       // 이렇게 하면 135개 전체를 호출하지 않고 가장 유력한 20개만 카카오 API에 조회하므로 렉이 전혀 안 걸립니다.
       const top20FilteredResults = filteredResults
         .sort((a, b) => parseFloat(a.duration) - parseFloat(b.duration))
