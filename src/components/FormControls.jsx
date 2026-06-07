@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { ChevronDown, MapPin, Calendar, Palette, Heart, X } from "lucide-react";
+import { ChevronDown, MapPin, Calendar, Heart, X } from "lucide-react";
 
 const TASTE_DATA = {
   nature: {
@@ -24,9 +24,7 @@ const TASTE_DATA = {
   },
 };
 
-// ==========================================
 // 1. 선호 스타일 피커 (투명 모자이크 백드롭 + 화살표 배제)
-// ==========================================
 export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedMains, setSelectedMains] = useState([]);
@@ -70,7 +68,7 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
   return (
     <>
       <div
-        className="input-field !py-4 !px-6 transition-all"
+        className="input-field !py-4 !px-6 transition-all cursor-pointer"
         onClick={() => setIsOpen(true)}>
         <div className="text-[12px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1">
           선호 스타일
@@ -83,7 +81,6 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
               displayValue
             )}
           </span>
-          {/* 🌟 지시 화살표를 완전히 배제하고 감성 하트 아이콘만 우측 배치 */}
           <div className="flex items-center text-[#6B5FD8] shrink-0">
             <Heart
               size={20}
@@ -95,7 +92,6 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
 
       {isOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          {/* 🌟 [요청 반영] 회색 바탕 차단 후 오리지널 밤하늘이 비치는 투명 모자이크(백드롭 블러) 레이어 처리 */}
           <div
             className="absolute inset-0 bg-white/10 backdrop-blur-[6px] transition-opacity"
             onClick={() => setIsOpen(false)}
@@ -159,7 +155,6 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
                         <button
                           key={sub}
                           type="button"
-                          onClick={() => toggleMain(key)}
                           onClick={() => onSubToggle(sub)}
                           className={`px-3 py-1.5 rounded-xl text-xs sb-font-h border transition-all font-black ${
                             isSubSelected
@@ -196,9 +191,7 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
   );
 };
 
-// ==========================================
 // 2. 출발지 설정 피커 (OriginSearchPicker) - 화살표 배제
-// ==========================================
 export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [keyword, setKeyword] = useState("");
@@ -281,7 +274,7 @@ export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
   return (
     <div className="relative h-full" ref={dropdownRef}>
       <div
-        className="input-field !py-4 !px-6 transition-all"
+        className="input-field !py-4 !px-6 transition-all cursor-pointer"
         onClick={() => setIsOpen(!isOpen)}>
         <div className="text-[12px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1">
           출발지 설정
@@ -290,7 +283,6 @@ export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
           <span className="text-[17px] text-[#2D2A4A] sb-font-h truncate max-w-[85%] font-black">
             {value}
           </span>
-          {/* 🌟 화살표를 배제하고 고유 MapPin 그래픽만 유지 */}
           <div className="text-[#6B5FD8] shrink-0">
             <MapPin size={20} />
           </div>
@@ -298,7 +290,7 @@ export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
       </div>
 
       {isOpen && (
-        <div className="sb-dropdown p-4 w-full min-w-[300px] md:min-w-[340px] animate-in fade-in zoom-in duration-200">
+        <div className="sb-dropdown p-4 w-full min-w-[300px] md:min-w-[340px] animate-in fade-in zoom-in duration-200 z-50">
           <button
             type="button"
             onClick={handleGetCurrentLocation}
@@ -336,9 +328,7 @@ export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
   );
 };
 
-// ==========================================
 // 3. 캘린더 날짜 피커 (CalendarPicker) - 화살표 배제
-// ==========================================
 export const CalendarPicker = ({ value, options, onSelect }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -362,7 +352,7 @@ export const CalendarPicker = ({ value, options, onSelect }) => {
   return (
     <div className="relative h-full" ref={dropdownRef}>
       <div
-        className="input-field !py-4 !px-6 transition-all"
+        className="input-field !py-4 !px-6 transition-all cursor-pointer"
         onClick={() => setIsOpen(!isOpen)}>
         <div className="text-[12px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1">
           여행 날짜
@@ -371,7 +361,6 @@ export const CalendarPicker = ({ value, options, onSelect }) => {
           <span className="text-[17px] text-[#2D2A4A] sb-font-h whitespace-nowrap font-black">
             {value}
           </span>
-          {/* 🌟 화살표를 배제하고 전용 Calendar 아이콘 패키지만 구성 */}
           <div className="text-[#6B5FD8] shrink-0">
             <Calendar size={20} />
           </div>
@@ -379,7 +368,7 @@ export const CalendarPicker = ({ value, options, onSelect }) => {
       </div>
 
       {isOpen && (
-        <div className="sb-dropdown w-[320px] animate-in fade-in zoom-in duration-200 z-[9999] absolute top-[105%] left-0 bg-white shadow-2xl rounded-3xl p-4 border border-gray-100">
+        <div className="sb-dropdown w-full min-w-[300px] animate-in fade-in zoom-in duration-200 z-[9999] absolute top-[105%] left-0 right-0 bg-white shadow-2xl rounded-3xl p-4 border border-gray-100">
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
               <div
@@ -394,7 +383,11 @@ export const CalendarPicker = ({ value, options, onSelect }) => {
             {options.map((option, idx) => (
               <div
                 key={idx}
-                className={`h-9 w-9 flex items-center justify-center rounded-xl text-xs sb-font-h cursor-pointer font-black ${value === option ? "bg-[#6B5FD8] text-white" : "text-[#2D2A4A] hover:bg-[#F0EFFF]"}`}
+                className={`h-9 w-9 flex items-center justify-center rounded-xl text-xs sb-font-h cursor-pointer font-black transition-all ${
+                  value === option
+                    ? "bg-[#6B5FD8] text-white shadow-md shadow-[#6B5FD8]/25"
+                    : "text-[#2D2A4A] hover:bg-[#F0EFFF]"
+                }`}
                 onClick={() => {
                   onSelect(option);
                   setIsOpen(false);
@@ -409,16 +402,14 @@ export const CalendarPicker = ({ value, options, onSelect }) => {
   );
 };
 
-// ==========================================
 // 4. 일반 드롭다운 선택 아이템 (SelectItem - 성별, 나이, 이동시간 용)
-// ==========================================
 export const SelectItem = ({ label, value, options, onSelect }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
   const finalOptions = useMemo(() => {
     if (label === "나이") {
-      return ["10대", "20대", "30대", "40대", "50대", "60대", "70대"];
+      return ["10대", "20대", "30대", "40대", "50대", "60대", "70대 이상"];
     }
     return options;
   }, [label, options]);
@@ -435,7 +426,7 @@ export const SelectItem = ({ label, value, options, onSelect }) => {
   return (
     <div className="relative h-full" ref={dropdownRef}>
       <div
-        className="input-field !py-4 !px-6 transition-all"
+        className="input-field !py-4 !px-6 transition-all cursor-pointer"
         onClick={() => setIsOpen(!isOpen)}>
         <div className="text-[12px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1">
           {label}
@@ -444,16 +435,69 @@ export const SelectItem = ({ label, value, options, onSelect }) => {
           <span className="text-[17px] text-[#2D2A4A] sb-font-h whitespace-nowrap font-black">
             {value}
           </span>
-          {/* 🌟 2행 구성 드롭다운 리스트(성별, 나이, 이동시간)는 클릭 유도를 위해 지시 화살표 정상 출력 */}
+          {/* 출발 시간과 디자인 완성도를 맞추기 위해 strokeWidth={2.5} 굵기 동기화 */}
           <ChevronDown
             size={16}
+            strokeWidth={2.5}
             className={`text-[#6B5FD8] transition-transform duration-300 shrink-0 ${isOpen ? "rotate-180" : ""}`}
           />
         </div>
       </div>
       {isOpen && (
-        <div className="sb-dropdown animate-in fade-in zoom-in-95 duration-200">
+        <div className="sb-dropdown animate-in fade-in zoom-in-95 duration-200 z-50">
           {finalOptions.map((option, idx) => (
+            <div
+              key={idx}
+              className="sb-dropdown-item py-3 text-[15px] font-black"
+              onClick={() => {
+                onSelect(option);
+                setIsOpen(false);
+              }}>
+              {option}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+// 5. ⏰ 출발 시간 피커 (DepartureTimePicker)
+export const DepartureTimePicker = ({ value, options, onSelect }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target))
+        setIsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative h-full" ref={dropdownRef}>
+      <div
+        className="input-field !py-4 !px-6 transition-all cursor-pointer"
+        onClick={() => setIsOpen(!isOpen)}>
+        <div className="text-[12px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1">
+          출발 시간
+        </div>
+        <div className="flex items-center justify-between gap-2 w-full">
+          <span className="text-[17px] text-[#2D2A4A] sb-font-h whitespace-nowrap font-black">
+            {value}
+          </span>
+          <ChevronDown
+            size={16}
+            strokeWidth={2.5}
+            className={`text-[#6B5FD8] transition-transform duration-300 shrink-0 ${isOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="sb-dropdown animate-in fade-in zoom-in-95 duration-200 z-50 max-h-[220px] overflow-y-auto scrollbar-thin">
+          {options.map((option, idx) => (
             <div
               key={idx}
               className="sb-dropdown-item py-3 text-[15px] font-black"
