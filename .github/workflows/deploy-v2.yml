@@ -48,7 +48,13 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
-
+      
+      - name: Debug
+        run: |
+          ls -la
+          ls -la dist
+          ls -la dist/assets
+      
       - name: Deploy to GitHub Pages Live
         id: deployment
         uses: actions/deploy-pages@v5
