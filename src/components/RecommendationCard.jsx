@@ -6,8 +6,13 @@ import {
   CloudRain,
   Snowflake,
   MapPin,
-  Navigation,
   Layers,
+  ThumbsUp,
+  ThumbsDown,
+  ExternalLink,
+  X,
+  Clock,
+  Calendar,
 } from "lucide-react";
 
 export const RecommendationCard = ({
@@ -15,97 +20,121 @@ export const RecommendationCard = ({
   subtitle,
   rank,
   address,
-  onShowMap,
   weather,
   image,
   category_main,
   category_mid,
   category_sub,
+  startOrigin,
+  travelDate,
+  departureTime,
+  lat,
+  lng,
+  congestion_rate,
+  spotScore,
+  kakaoDist,
+  kakaoTime,
+  onCardClick,
+  temp, // 🌟 App.jsx로부터 주입받은 실시간 기온 데이터 수용
 }) => {
-  const [isFlipped, setIsFlipped] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // 1층 고정 스코어 매핑 스펙
-  const fixedCongestion = 50;
-  const fixedSuitability = 70;
-  const fixedWeatherScore = 90;
-  const fixedFinalScore = Math.round(
-    (fixedCongestion + fixedSuitability + fixedWeatherScore) / 3,
-  );
+  // 👍 좋아요 / 👎 싫어요 상태 관리
+  const [feedback, setFeedback] = useState(null); // null, 'like', 'dislike'
 
-  // 헤더 매칭용 기상 아이콘 디스플레이 엔진
+  const displayCongestion = congestion_rate !== undefined ? congestion_rate : 0;
+  const displayFinalScore = spotScore !== undefined ? Math.round(spotScore) : 0;
+
+  // 📅 "2026. 06. 12 (금)" 에서 요일 괄호를 제거하고 날짜만 안전하게 추출
+  const displayPureDate = travelDate
+    ? travelDate.replace(/\s*\([^)]*\)/g, "").trim()
+    : "";
+
+  // 🌤️ 기상청 코드 "맑음(1)" 이나 "흐림(4)" 에서 숫자 코드를 잘라내고 한국어만 추출
+  const pureWeatherText = weather
+    ? weather.replace(/\(\d+\)/g, "").trim()
+    : "맑음";
+
+  const activeImage =
+    !image || image === "./600400.png" || image === "/600400.png"
+      ? "/600400.png"
+      : image;
+
+  // 날씨 아이콘 매칭 엔진
   const renderCardWeatherIcon = () => {
-    const text = weather || "맑음";
-    if (text.includes("맑음"))
+    if (pureWeatherText.includes("맑음"))
       return <Sun size={16} strokeWidth={2.5} className="text-orange-400" />;
-    if (text.includes("구름"))
+    if (pureWeatherText.includes("구름"))
       return (
         <CloudSun size={16} strokeWidth={2.5} className="text-orange-400" />
       );
-    if (text.includes("흐림"))
+    if (pureWeatherText.includes("흐림"))
       return <Cloud size={16} strokeWidth={2.5} className="text-gray-400" />;
-    if (text.includes("비"))
+    if (pureWeatherText.includes("비"))
       return (
         <CloudRain size={16} strokeWidth={2.5} className="text-blue-400" />
       );
-    if (text.includes("눈"))
+    if (pureWeatherText.includes("눈"))
       return <Snowflake size={16} strokeWidth={2.5} className="text-sky-300" />;
     return <Sun size={16} strokeWidth={2.5} className="text-orange-400" />;
   };
 
-  // 🌟 [버그 원인 제거] 대중소 카테고리 내의 '모든 다중 값'들을 해시태그 배열로 정밀 분쇄 추출하는 기하학적 파이프라인
-  const renderHashTags = () => {
-    const allTags = [];
-
-    // 대분류 배열/문자열 처리
-    if (category_main) {
-      if (Array.isArray(category_main)) allTags.push(...category_main);
-      else allTags.push(category_main);
+  const formatCategory = (cat) => {
+    if (!cat) return [];
+    if (Array.isArray(cat)) return cat;
+    if (typeof cat === "string") {
+      if (cat.includes(",")) return cat.split(",").map((s) => s.trim());
+      return [cat];
     }
-    // 중분류 배열/문자열 처리
-    if (category_mid) {
-      if (Array.isArray(category_mid)) allTags.push(...category_mid);
-      else allTags.push(category_mid);
-    }
-    // 소분류 배열/문자열 처리 (쉼표나 공백이 섞여 들어와도 전부 조각내어 1차원 태그로 정렬)
-    if (category_sub) {
-      if (Array.isArray(category_sub)) {
-        category_sub.forEach((sub) => {
-          if (sub.includes(","))
-            allTags.push(...sub.split(",").map((s) => s.trim()));
-          else allTags.push(sub);
-        });
-      } else if (typeof category_sub === "string") {
-        if (category_sub.includes(","))
-          allTags.push(...category_sub.split(",").map((s) => s.trim()));
-        else allTags.push(category_sub);
-      }
-    }
+    return [];
+  };
 
-    // 중복 제거 가드 적용 후 최종 개별 해시태그 컴포넌트 렌더링
-    const uniqueTags = Array.from(new Set(allTags.filter(Boolean)));
+  const allTags = Array.from(
+    new Set([
+      ...formatCategory(category_main),
+      ...formatCategory(category_mid),
+      ...formatCategory(category_sub),
+    ]),
+  ).filter(Boolean);
 
-    return uniqueTags.map((tag, idx) => {
-      let tagColor = "text-[#6B5FD8]";
+  // 👍 좋아요 클릭 (부모 카드 열기 이벤트 전파 방지)
+  const handleLike = (e) => {
+    e.stopPropagation();
+    setFeedback(feedback === "like" ? null : "like");
+  };
 
-      return (
-        <span
-          key={idx}
-          className={`${tagColor} text-[13px] font-black tracking-tight cursor-default select-none`}>
-          #{tag}
-        </span>
-      );
-    });
+  // 👎 싫어요 클릭 (부모 카드 열기 이벤트 전파 방지)
+  const handleDislike = (e) => {
+    e.stopPropagation();
+    setFeedback(feedback === "dislike" ? null : "dislike");
+  };
+
+  const openNaverMap = () => {
+    const startName = encodeURIComponent(startOrigin?.name || "출발지");
+    const url = `https://map.naver.com/index.nhn?slng=${startOrigin?.lng}&slat=${startOrigin?.lat}&stext=${startName}&elng=${lng}&elat=${lat}&etext=${encodeURIComponent(name)}&menu=route&pathType=0`;
+    window.open(url, "_blank");
+  };
+
+  const openKakaoMap = () => {
+    const url = `https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}/from/${encodeURIComponent(startOrigin?.name || "출발지")},${startOrigin?.lat},${startOrigin?.lng}`;
+    window.open(url, "_blank");
   };
 
   return (
-    <div
-      className={`flip-card ${isFlipped ? "flipped" : ""}`}
-      onClick={() => setIsFlipped(!isFlipped)}>
-      <div className="flip-card-inner">
-        {/* 1. 카드 앞면 (지표 전광판 유지) */}
-        <div className="flip-card-front bg-white/55 backdrop-blur-md border border-white/60 p-5 md:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 hover:bg-white/70 transition-all duration-300">
+    <>
+      {/* ==================================================== */}
+      {/* 1. 메인 결과 화면 노출용 전면 카드 유닛 */}
+      {/* ==================================================== */}
+      <div
+        className="bg-white/55 backdrop-blur-md border border-white/60 p-5 md:p-6 rounded-[24px] shadow-xl flex flex-col hover:bg-white/70 transition-all duration-300 cursor-pointer transform active:scale-[0.99]"
+        onClick={() => {
+          if (onCardClick) onCardClick();
+          setIsModalOpen(true);
+        }}>
+        {/* 상단 레이아웃 분기 */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 w-full">
           <div className="flex items-center gap-6 w-full md:w-auto text-left">
-            <div className="bg-gradient-to-b from-[#6B5FD8] to-[#5A4EBF] text-white w-12 h-[68px] rounded-2xl flex items-center justify-center font-black text-xl shrink-0 shadow-lg shadow-[#6B5FD8]/25">
+            <div className="bg-gradient-to-b from-[#6B5FD8] to-[#5A4EBF] text-white w-12 h-[68px] rounded-2xl flex items-center justify-center font-black text-xl shrink-0 shadow-lg">
               {rank}
             </div>
             <div>
@@ -120,108 +149,216 @@ export const RecommendationCard = ({
 
           <div className="flex items-center justify-between md:justify-end gap-5 md:gap-7 w-full md:w-auto border-t md:border-t-0 pt-4 md:pt-0 border-white/30">
             <div className="text-center">
-              <div className="text-[10px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1 font-bold whitespace-nowrap">
+              <div className="text-[10px] text-[#8884A8] font-bold whitespace-nowrap uppercase tracking-widest mb-1">
                 혼잡 추이
               </div>
-              <div className="text-lg sb-font-h text-red-500 font-black">
-                {fixedCongestion}%
+              <div className="text-lg text-red-500 font-black">
+                {displayCongestion}%
               </div>
             </div>
 
-            <div className="text-center">
-              <div className="text-[10px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1 font-bold whitespace-nowrap">
-                적합도(성별, 나이)
+            <div className="text-center min-w-[90px]">
+              <div className="text-[10px] text-[#8884A8] font-bold whitespace-nowrap uppercase tracking-widest mb-1.5">
+                실시간 날씨
               </div>
-              <div className="text-lg sb-font-h text-blue-600 font-black">
-                {fixedSuitability}%
-              </div>
-            </div>
-
-            <div className="text-center">
-              <div className="text-[10px] text-[#8884A8] sb-font-h uppercase tracking-widest mb-1 font-bold whitespace-nowrap">
-                날씨 ({weather || "맑음"})
-              </div>
-              <div className="text-lg sb-font-h text-emerald-600 font-black">
-                {fixedWeatherScore}점
+              <div className="flex items-center gap-1.5 justify-center bg-gray-50/80 px-2.5 py-1.5 rounded-xl border border-gray-100/50">
+                <div className="shrink-0 animate-pulse">
+                  {renderCardWeatherIcon()}
+                </div>
+                <span className="text-sm font-black text-[#2D2A4A] tracking-tight">
+                  {pureWeatherText}
+                </span>
+                <span className="text-sm font-black text-[#6B5FD8]">
+                  {temp ? `${Math.round(temp)}°C` : "22°C"}
+                </span>
               </div>
             </div>
 
             <div className="bg-gradient-to-br from-[#6B5FD8] to-[#8E85EE] text-white rounded-2xl px-5 py-3.5 shadow-lg text-center min-w-[95px] shrink-0">
-              <div className="text-[9px] sb-font-h opacity-80 mb-0.5 uppercase tracking-widest font-bold">
+              <div className="text-[9px] opacity-80 mb-0.5 font-bold uppercase tracking-widest">
                 최종 점수
               </div>
-              <div className="text-2xl sb-font-h font-black">
-                {fixedFinalScore}
+              <div className="text-2xl font-black">
+                {displayFinalScore}
                 <span className="text-[10px] font-bold ml-0.5">/100</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 2. 카드 뒷면 */}
-        <div className="flip-card-back bg-white/95 backdrop-blur-xl border-2 border-[#6B5FD8]/45 p-4 md:p-5 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex flex-col md:flex-row gap-4 w-full md:w-[78%] text-left items-center md:items-stretch">
-            <div className="w-[150px] h-[105px] bg-gradient-to-br from-[#F0EFFF] to-[#E6E4FA] rounded-xl overflow-hidden shadow-sm shrink-0 relative border border-[#6B5FD8]/10 flex items-center justify-center">
-              {image ? (
-                <img
-                  src={image}
-                  alt={name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center gap-1 select-none">
-                  <span className="text-[14px] font-black tracking-widest text-[#6B5FD8]/60 uppercase sb-font-h">
-                    No Image
-                  </span>
-                  <span className="text-[9px] font-bold text-[#8884A8]/60">
-                    SpotBalance
-                  </span>
-                </div>
-              )}
-            </div>
+        {/* 🌟 카드 하단 점선 및 피드백/가이드 캡션 추가 구역 */}
+        <div className="mt-4 pt-3.5 border-t border-dashed border-[#2D2A4A]/10 flex items-center justify-between w-full">
+          <span className="text-[11px] text-[#8884A8] font-black tracking-tight animate-pulse flex items-center gap-1">
+            💡 자세히 보시려면 눌러주세요.
+          </span>
 
-            <div className="flex flex-col justify-between flex-grow w-full py-1.5 gap-3 md:gap-0">
-              {/* 테마 해시태그 줄 */}
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-1">
-                  <Layers size={12} className="text-[#6B5FD8]" />
-                  <span className="text-[9px] sb-font-h text-[#8884A8] uppercase tracking-widest font-black">
-                    테마 해시태그
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-x-2 gap-y-1 mt-0.5">
-                  {renderHashTags()}{" "}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1">
-                  <MapPin size={12} className="text-[#6B5FD8]" />
-                  <span className="text-[9px] sb-font-h text-[#8884A8] uppercase tracking-widest font-black">
-                    정확한 위치 주소
-                  </span>
-                </div>
-                <div className="text-[14px] sb-font-h text-[#2D2A4A] leading-tight font-black truncate pl-0.5">
-                  {address}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 길찾기 버튼 */}
-          <div className="flex flex-col items-center justify-center gap-2.5 w-full md:w-[20%] border-t md:border-t-0 md:border-l border-gray-100 pt-3 md:pt-0 md:pl-4 h-full">
+          {/* 👍 좋아요 / 👎 싫어요 피드백 소형 배정 그룹 */}
+          <div className="flex items-center gap-1 bg-gray-100/80 p-1 rounded-xl border border-gray-200/40">
             <button
-              className="w-full h-full min-h-[52px] bg-[#6B5FD8] text-white py-3 rounded-xl sb-font-h text-[14px] shadow-lg hover:bg-[#5A4EBF] transition-all flex md:flex-col items-center justify-center gap-1.5 font-black transform active:scale-95"
-              onClick={(e) => {
-                e.stopPropagation();
-                onShowMap();
-              }}>
-              <Navigation size={16} fill="currentColor" />
-              <span>실시간 길찾기</span>
+              onClick={handleLike}
+              className={`p-1.5 rounded-lg transition-all transform active:scale-90 ${
+                feedback === "like"
+                  ? "bg-[#6B5FD8] text-white shadow-md"
+                  : "text-gray-400 hover:bg-gray-200 hover:text-[#2D2A4A]"
+              }`}
+              title="좋아요">
+              <ThumbsUp
+                size={13}
+                className={feedback === "like" ? "fill-white" : ""}
+              />
+            </button>
+            <button
+              onClick={handleDislike}
+              className={`p-1.5 rounded-lg transition-all transform active:scale-90 ${
+                feedback === "dislike"
+                  ? "bg-red-500 text-white shadow-md"
+                  : "text-gray-400 hover:bg-gray-200 hover:text-red-500"
+              }`}
+              title="싫어요">
+              <ThumbsDown
+                size={13}
+                className={feedback === "dislike" ? "fill-white" : ""}
+              />
             </button>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* ==================================================== */}
+      {/* 2. 브라우저용 반응형 상세 모달 창 */}
+      {/* ==================================================== */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 bg-white/10 backdrop-blur-md z-[1000] flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setIsModalOpen(false)}>
+          <div
+            className="bg-white border border-white/80 rounded-[32px] shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-left"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="w-full h-[180px] md:h-[220px] relative bg-gradient-to-br from-[#F0EFFF] to-[#E6E4FA] shrink-0">
+              <img
+                src={activeImage}
+                alt={name}
+                className="w-full h-full object-cover"
+              />
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="absolute top-4 right-4 bg-black/20 hover:bg-black/40 text-white p-2 rounded-full transition-all backdrop-blur-sm">
+                <X size={18} />
+              </button>
+              <div className="absolute bottom-4 left-4 bg-[#6B5FD8] text-white px-3.5 py-1 rounded-full text-xs font-black shadow-lg">
+                추천순위 {rank}위
+              </div>
+            </div>
+
+            <div className="p-5 md:p-7 flex-grow overflow-y-auto space-y-5 scrollbar-thin">
+              <div className="flex justify-between items-start gap-4">
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-black text-[#2D2A4A] tracking-tight leading-tight mb-1">
+                    {name}
+                  </h2>
+                  <p className="text-[#6B5FD8] text-sm font-bold">{subtitle}</p>
+                </div>
+                <div className="flex gap-2 shrink-0 items-center">
+                  {/* 모달 내부 좋아요/싫어요 평가 연동 배정 슬롯 */}
+                  <div className="flex items-center gap-1 bg-gray-50 p-1.5 rounded-xl border border-gray-200/60">
+                    <button
+                      onClick={handleLike}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-black transition-all ${feedback === "like" ? "bg-[#6B5FD8] text-white" : "bg-white text-gray-500 border border-gray-200"}`}>
+                      <ThumbsUp size={12} />
+                      좋아요
+                    </button>
+                    <button
+                      onClick={handleDislike}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-black transition-all ${feedback === "dislike" ? "bg-red-500 text-white" : "bg-white text-gray-500 border border-gray-200"}`}>
+                      <ThumbsDown size={12} />
+                      싫어요
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-xs bg-[#6B5FD8]/5 p-3.5 rounded-xl border border-[#6B5FD8]/10 flex justify-between font-black text-[#2D2A4A]">
+                <span className="flex items-center gap-1">
+                  🚘 실시간 예상 소요시간:{" "}
+                  <span className="text-[#6B5FD8] text-sm font-black">
+                    {kakaoTime ? `${kakaoTime}분` : "계산 중..."}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1">
+                  🛣️ 도로 거리:{" "}
+                  <span className="text-emerald-600 text-sm font-black">
+                    {kakaoDist ? `${kakaoDist}km` : "계산 중..."}
+                  </span>
+                </span>
+              </div>
+
+              <hr className="border-gray-100" />
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[11px] text-[#8884A8] font-black uppercase tracking-wider">
+                  <Layers size={12} className="text-[#6B5FD8]" />
+                  <span>테마 카테고리 태그</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {allTags.map((tag, idx) => (
+                    <span
+                      key={idx}
+                      className="bg-[#6B5FD8]/5 border border-[#6B5FD8]/10 text-[#6B5FD8] text-[12px] font-black px-2.5 py-0.5 rounded-lg">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[11px] text-[#8884A8] font-black uppercase tracking-wider">
+                  <MapPin size={12} className="text-[#6B5FD8]" />
+                  <span>정확한 위치 주소</span>
+                </div>
+                <div className="text-[14px] text-[#2D2A4A] font-black bg-gray-50/70 px-3 py-2.5 rounded-xl border border-gray-100">
+                  {address}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 bg-[#6B5FD8]/5 p-3 rounded-xl border border-[#6B5FD8]/10">
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} className="text-[#6B5FD8]" />
+                  <div>
+                    <span className="text-[#8884A8] block font-bold text-[10px]">
+                      계획된 여행일
+                    </span>
+                    <span className="text-[#2D2A4A] font-black text-[12px]">
+                      {displayPureDate}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock size={14} className="text-[#6B5FD8]" />
+                  <div>
+                    <span className="text-[#8884A8] block font-bold text-[10px]">
+                      지정 출발시각
+                    </span>
+                    <span className="text-[#2D2A4A] font-black text-[12px]">
+                      {departureTime} 출발
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <button
+                  onClick={openNaverMap}
+                  className="w-full bg-[#03C75A] text-white py-3.5 rounded-xl text-[14px] font-black flex items-center justify-center gap-2 shadow-md hover:brightness-95 transition-all">
+                  <span>네이버 지도 길찾기</span>
+                  <ExternalLink size={14} />
+                </button>
+                <button
+                  onClick={openKakaoMap}
+                  className="w-full bg-[#FEE500] text-[#191919] py-3.5 rounded-xl text-[14px] font-black flex items-center justify-center gap-2 shadow-md hover:brightness-95 transition-all">
+                  <span>카카오 맵 길찾기</span>
+                  <ExternalLink size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };

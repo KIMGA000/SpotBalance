@@ -34,10 +34,11 @@ import {
 } from "./components/FormControls";
 import { RecommendationCard } from "./components/RecommendationCard";
 import { ServiceIntro } from "./components/ServiceIntro";
-import { getVilageFcstBaseTime } from "./utils/weatherTimeCalculator";
 import { KakaoMapView } from "./components/KakaoMapView";
 
-// 1. Supabase 초기화 설정
+// 🌟 외부로 격리 분쇄한 최적화 알고리즘 엔진 임포트
+import { filterAndScoreSpots } from "./utils/spotRecommender";
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -56,10 +57,8 @@ const TASTE_DATA_CONFIG = {
   activity: ["레저", "웰니스", "생태", "동물원", "만들기"],
 };
 
-// 🌤️ 실시간 날씨 전광판 컴포넌트
 function HeaderWeather({ weather }) {
   if (!weather || !weather.text) return null;
-
   const renderWeatherIcon = () => {
     const text = weather.text;
     if (text.includes("맑음"))
@@ -80,7 +79,6 @@ function HeaderWeather({ weather }) {
       );
     return <Sun size={22} strokeWidth={2.5} className="text-[#F4C84A]" />;
   };
-
   return (
     <div className="hidden sm:flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-[#6B5FD8]/10 px-4 py-2 rounded-full shadow-sm">
       <span className="text-[11px] text-[#8884A8] sb-font-h uppercase tracking-widest border-r border-gray-200 pr-2">
@@ -96,14 +94,15 @@ function HeaderWeather({ weather }) {
   );
 }
 
-// 메인 App 컴포넌트 시작
 function App() {
   const [activeScreen, setActiveScreen] = useState("screen-start");
   const [visibleCount, setVisibleCount] = useState(3);
   const [selectedPlaceIndex, setSelectedPlaceIndex] = useState(0);
-
   const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // 10개 노선의 카카오 실도로 폴리라인 패스들을 총괄 보관할 마스터 딕셔너리 상태
+  const [kakaoRoutesMaster, setKakaoRoutesMaster] = useState({});
 
   const [gangwonWeather, setGangwonWeather] = useState({
     text: "맑음",
@@ -156,76 +155,152 @@ function App() {
     return opt;
   }, []);
 
-  const [origin, setOrigin] = useState("서울 성동구");
+  const [origin, setOrigin] = useState("강원대학교 춘천캠퍼스");
   const [selectedOrigin, setSelectedOrigin] = useState({
-    name: "서울 성동구",
-    address: "서울특별시 성동구",
-    lat: 37.5665,
-    lng: 126.978,
+    name: "강원대학교 춘천캠퍼스",
+    address: "강원대학교 춘천캠퍼스",
+    lat: 37.86945254603451,
+    lng: 127.74403884881542,
   });
-
   const [travelDate, setTravelDate] = useState(dateOptions[0]);
   const [age, setAge] = useState("20대");
   const [gender, setGender] = useState("여성");
   const [travelTime, setTravelTime] = useState("3시간 이내");
-
-  // 브라우저 현재 시, 분 초기 세팅
-  const currentInitialTime = useMemo(() => {
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, "0");
-    const minutes = String(now.getMinutes()).padStart(2, "0");
-    return `${hours}:${minutes}`;
-  }, []);
-
   const [departureTime, setDepartureTime] = useState("10:00");
   const [selectedStyles, setSelectedStyles] = useState([]);
-  const timeInputRef = useRef(null);
 
-  // Supabase 실시간 날씨 연동 및 카카오맵 스크립트 로드
   useEffect(() => {
     const initializeAppServices = async () => {
       try {
-        const { data: weatherData, error: weatherError } = await supabase
+        const { data: weatherData } = await supabase
           .from("current_weather")
           .select("weather_text, temp")
           .eq("id", 1)
           .single();
-
-        if (!weatherError && weatherData) {
+        if (weatherData) {
           setGangwonWeather({
             text: weatherData.weather_text || "맑음",
             temp: weatherData.temp || 22,
             icon: "cloud-sun",
           });
         }
-
         const kakaoMapApiKey = import.meta.env.VITE_KAKAO_MAP_KEY;
-
-        if (kakaoMapApiKey) {
-          if (document.getElementById("kakao-map-script")) return;
-
+        if (kakaoMapApiKey && !document.getElementById("kakao-map-script")) {
           const script = document.createElement("script");
           script.id = "kakao-map-script";
           script.async = true;
           script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoMapApiKey}&libraries=services&autoload=false`;
           script.onload = () => {
             window.kakao.maps.load(() => {
-              console.log("🗺️ 카카오맵 구동 완료! (.env 로드 성공)");
+              console.log("🗺️ 카카오맵 구동 완료!");
             });
           };
           document.head.appendChild(script);
         }
       } catch (error) {
-        console.error("인프라 초기화 실패:", error);
+        console.error(error);
       }
     };
     initializeAppServices();
   }, []);
 
+  /**
+   * 🚗 [완치 완료] 10개 노선 동시 렌더링 수집 파이프라인 방어 복원 엔진
+   */
+  const fetchAllTop10KakaoRoutes = async (top10Spots) => {
+    const KAKAO_REST_KEY = import.meta.env.VITE_KAKAO_REST_KEY;
+    if (!KAKAO_REST_KEY) {
+      console.warn("VITE_KAKAO_REST_KEY 정보가 누락되었습니다.");
+      return;
+    }
+
+    const originCoords = `${selectedOrigin.lng},${selectedOrigin.lat}`;
+
+    const routePromises = top10Spots.map(async (spot, index) => {
+      const destCoords = `${spot.lng},${spot.lat}`;
+      try {
+        const response = await fetch(
+          `https://apis-navi.kakaomobility.com/v1/directions?origin=${originCoords}&destination=${destCoords}&priority=RECOMMEND`,
+          {
+            method: "GET",
+            headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+          },
+        );
+        if (!response.ok) throw new Error("API 응답 지연");
+        const resData = await response.json();
+
+        if (
+          resData &&
+          resData.routes &&
+          resData.routes[0] &&
+          resData.routes[0].summary
+        ) {
+          const route = resData.routes[0];
+          const realTimeMin = Math.round(route.summary.duration / 60);
+          const realDistKm = (route.summary.distance / 1000).toFixed(1);
+
+          const linePoints = [];
+          if (route.sections && route.sections[0] && route.sections[0].roads) {
+            route.sections[0].roads.forEach((road) => {
+              const vertexes = road.vertexes;
+              if (vertexes) {
+                for (let i = 0; i < vertexes.length; i += 2) {
+                  linePoints.push({ lat: vertexes[i + 1], lng: vertexes[i] });
+                }
+              }
+            });
+          }
+
+          return {
+            index,
+            kakaoTime: realTimeMin,
+            kakaoDist: realDistKm,
+            path: linePoints,
+          };
+        } else {
+          throw new Error("경로 데이터 파싱 누수");
+        }
+      } catch (e) {
+        console.warn(
+          `⚠️ [카카오 가드 발동] "${spot.name}" 노선 하버사인 대체 매핑 우회`,
+        );
+        const fallbackMin = Math.round(parseFloat(spot.duration || "1.5") * 60);
+        const fallbackKm = parseFloat(spot.distance || "45");
+        return {
+          index,
+          kakaoTime: fallbackMin > 0 ? fallbackMin : 50,
+          kakaoDist: fallbackKm > 0 ? fallbackKm : 35.5,
+          path: [
+            { lat: selectedOrigin.lat, lng: selectedOrigin.lng },
+            { lat: spot.lat, lng: spot.lng },
+          ],
+        };
+      }
+    });
+
+    const settledRoutes = await Promise.all(routePromises);
+    const updatedRoutesMap = {};
+
+    setRecommendations((prev) => {
+      const newRecommendations = [...prev];
+      settledRoutes.forEach((routeData) => {
+        if (routeData) {
+          if (newRecommendations[routeData.index]) {
+            newRecommendations[routeData.index].duration = routeData.kakaoTime;
+            newRecommendations[routeData.index].distance = routeData.kakaoDist;
+          }
+          updatedRoutesMap[routeData.index] = routeData.path;
+        }
+      });
+      return newRecommendations;
+    });
+
+    setKakaoRoutesMaster(updatedRoutesMap);
+  };
+
+  // 🚀 알고리즘 연산 위임 파이프라인
   const handleGetRecommendations = async () => {
     document.body.style.overflow = "unset";
-
-    // [1차 필터 사전 가드] 대/중분류 취향 필수 가드
     if (selectedStyles.length === 0) {
       alert(
         "더 정확한 맞춤 추천을 위해 취향 설정을 최소 1개 이상 선택해 주세요! 😉",
@@ -233,13 +308,11 @@ function App() {
       return;
     }
 
-    // 날짜 스트링 포맷 파싱
     const match = travelDate.match(/(\d{4})\.\s*(\d{2})\.\s*(\d{2})/);
     const targetQueryDate = match
       ? `${match[1]}-${match[2]}-${match[3]}`
       : new Date().toISOString().split("T")[0];
 
-    // 오늘 날짜인데 선택 시간이 과거인 경우 차단하는 하드 가드
     const realNow = new Date();
     const todayStr = `${realNow.getFullYear()}-${String(realNow.getMonth() + 1).padStart(2, "0")}-${String(realNow.getDate()).padStart(2, "0")}`;
 
@@ -258,399 +331,88 @@ function App() {
 
     setIsLoading(true);
 
-    const WEEK_DAYS = [
-      "일요일",
-      "월요일",
-      "화요일",
-      "수요일",
-      "목요일",
-      "금요일",
-      "토요일",
-    ];
-    const dateObj = new Date(targetQueryDate);
-    const dayOfWeek = dateObj.getDay();
-    const formattedTravelDate = targetQueryDate.substring(5, 10);
-
-    const publicHolidays = [
-      "01-01",
-      "02-16",
-      "02-17",
-      "02-18",
-      "03-01",
-      "03-02",
-      "05-05",
-      "05-06",
-      "06-06",
-      "08-15",
-      "08-17",
-      "09-24",
-      "09-25",
-      "09-26",
-      "10-03",
-      "10-05",
-      "10-09",
-      "12-25",
-    ];
-
-    const isHoliday = publicHolidays.includes(formattedTravelDate);
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6;
-    const isWeekendOrHoliday = isWeekend || isHoliday;
-
-    // 3차 하버사인 연산 시속 스펙 명세 (평일 100km/h, 주말/공휴일/금요일 80km/h)
-    const currentSpeed = isWeekendOrHoliday ? 80 : 100;
-
-    const isOverCondition = travelTime.includes("초과");
-    const parsedLimitHours = parseFloat(travelTime.replace(/[^0-9.]/g, ""));
-    const maxHours = isNaN(parsedLimitHours) ? 5 : parsedLimitHours;
-
-    // 대분류 취향 레이블 수집
-    const targetMainLabels = [];
-    Object.keys(TASTE_DATA_CONFIG).forEach((mainKey) => {
-      const subsInMain = TASTE_DATA_CONFIG[mainKey];
-      const hasSelectedSub = selectedStyles.some((style) =>
-        subsInMain.includes(style),
-      );
-      if (hasSelectedSub && MAIN_LABEL_MAP[mainKey]) {
-        targetMainLabels.push(MAIN_LABEL_MAP[mainKey]);
-      }
-    });
-
-    // 📊 대시보드용 카운터 변수 장전
-    let totalSpotsCount = 0;
-    let stage1FailCount = 0;
-    let stage2HolidayFailCount = 0;
-    let stage2TimeFailCount = 0;
-    let stage3DistanceFailCount = 0;
-
-    console.clear(); // 이전 지저분한 로그 초기화
-    console.log(
-      "%c==================================================",
-      "color: #6B5FD8; font-weight: bold; font-size: 13px;",
-    );
-    console.log(
-      `%c🔮 SpotBalance 빅데이터 정밀 매칭 알고리즘 가동`,
-      "color: #6B5FD8; font-weight: bold; font-size: 14px;",
-    );
-    console.log(
-      `[출발 기준점] ${origin} (위도: ${selectedOrigin?.lat}, 경도: ${selectedOrigin?.lng})`,
-    );
-    console.log(
-      `[분석 조건 설정] 날짜: ${targetQueryDate} (${WEEK_DAYS[dayOfWeek]}) | 출발시간: ${departureTime} | 제한시간: ${travelTime}`,
-    );
-    console.log(
-      `[교통 환경 연산] 가중치 적용 시속: ${currentSpeed}km/h (주말/공휴일 여부: ${isWeekendOrHoliday ? "YES" : "NO"})`,
-    );
-    console.log(
-      `[유저 매칭 취향] 대분류: [${targetMainLabels.join(", ")}] | 세부 해시태그: [${selectedStyles.join(", ")}]`,
-    );
-    console.log(
-      "%c==================================================",
-      "color: #6B5FD8; font-weight: bold; font-size: 13px;",
-    );
-
     try {
-      const { data, error } = await supabase.from("spots").select(`
+      const { data: spotsData, error } = await supabase
+        .from("spots")
+        .select(
+          `
           id, spot_name, spot_description, address, image_url, is_always_open,
           open_time, close_time, last_entry_time, is_no_holiday, rest_weekly_days, is_holiday_close,
-          category_main, category_mid, category_sub, lat, lng
-        `);
+          category_main, category_mid, category_sub, lat, lng, county, county_district,
+          spot_visitor_trends(visitor_count)
+        `,
+        )
+        .eq("spot_visitor_trends.target_date", targetQueryDate);
 
       if (error) throw error;
-      totalSpotsCount = data ? data.length : 0;
 
-      const getHaversineDistance = (lat1, lon1, lat2, lon2) => {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * (Math.PI / 180);
-        const dLon = (lon2 - lon1) * (Math.PI / 180);
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(lat1 * (Math.PI / 180)) *
-            Math.cos(lat2 * (Math.PI / 180)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      };
-
-      // 1차, 2차를 통과한 후보들을 먼저 수집하는 독립 배열
-      const stage2PassResults = [];
-
-      data.forEach((spot) => {
-        const name = spot.spot_name || "이름 없는 명소";
-
-        // [STAGE 1] 1차 취향 필터
-        const spotMains = Array.isArray(spot.category_main)
-          ? spot.category_main
-          : [spot.category_main].filter(Boolean);
-        const spotMids = Array.isArray(spot.category_mid)
-          ? spot.category_mid
-          : [spot.category_mid].filter(Boolean);
-
-        const isMainMatched = spotMains.some((mainVal) =>
-          targetMainLabels.includes(mainVal),
-        );
-        const hasSelectedMid = selectedStyles.some((style) =>
-          spotMids.includes(style),
-        );
-
-        if (!isMainMatched || !hasSelectedMid) {
-          stage1FailCount++;
-          return;
-        }
-
-        // [STAGE 2] 2차 요일/시간/휴무일 복합 연산 필터
-        if (!(spot.is_always_open && spot.is_no_holiday)) {
-          if (!spot.is_no_holiday) {
-            if (isHoliday) {
-              if (spot.is_holiday_close) {
-                console.log(
-                  `%c[❌ 2차 공휴일 탈락] ${name}`,
-                  "color: #e57373;",
-                );
-                stage2HolidayFailCount++;
-                return;
-              }
-              if (
-                spot.rest_weekly_days &&
-                spot.rest_weekly_days.includes(dayOfWeek)
-              ) {
-                console.log(
-                  `%c[❌ 2차 휴무 요일 탈락] ${name}`,
-                  "color: #e57373;",
-                );
-                stage2HolidayFailCount++;
-                return;
-              }
-            } else {
-              if (
-                spot.rest_weekly_days &&
-                spot.rest_weekly_days.includes(dayOfWeek)
-              ) {
-                console.log(
-                  `%c[❌ 2차 휴무 요일 탈락] ${name}`,
-                  "color: #e57373;",
-                );
-                stage2HolidayFailCount++;
-                return;
-              }
-            }
-          }
-
-          if (!spot.is_always_open) {
-            if (!spot.open_time || !spot.close_time) {
-              stage2TimeFailCount++;
-              return;
-            }
-
-            const [depH, depM] = departureTime.split(":").map(Number);
-            const totalDepMinutes = depH * 60 + depM;
-
-            if (
-              !spot.lat ||
-              !spot.lng ||
-              !selectedOrigin?.lat ||
-              !selectedOrigin?.lng
-            )
-              return;
-            const distanceKm = getHaversineDistance(
-              Number(selectedOrigin.lat),
-              Number(selectedOrigin.lng),
-              Number(spot.lat),
-              Number(spot.lng),
-            );
-            const durationMinutes = Math.round(
-              (distanceKm / currentSpeed) * 60,
-            );
-            const arrivalMinutes = totalDepMinutes + durationMinutes;
-
-            const arrivalH = String(Math.floor(arrivalMinutes / 60)).padStart(
-              2,
-              "0",
-            );
-            const arrivalM = String(arrivalMinutes % 60).padStart(2, "0");
-
-            if (spot.last_entry_time) {
-              const [leH, leM] = spot.last_entry_time.split(":").map(Number);
-              if (arrivalMinutes > leH * 60 + leM) {
-                console.log(
-                  `%c[❌ 2차 입장 마감 탈락] ${name}`,
-                  "color: #ffb74d;",
-                );
-                stage2TimeFailCount++;
-                return;
-              }
-            } else {
-              const [clH, clM] = spot.close_time.split(":").map(Number);
-              if (arrivalMinutes > clH * 60 + clM - 60) {
-                console.log(
-                  `%c[❌ 2차 운영 마감 탈락] ${name}`,
-                  "color: #ffb74d;",
-                );
-                stage2TimeFailCount++;
-                return;
-              }
-            }
-          }
-        }
-
-        // 2차까지 잘 버틴 명소들을 임시 저장소에 push
-        stage2PassResults.push(spot);
-      });
-
-      // 3개 이하 스킵 가드 트리거 선언
-      const filteredResults = [];
-      const isShortageFallbackActive = stage2PassResults.length <= 3;
-
-      if (isShortageFallbackActive) {
-        console.log(
-          `%c⚠️ [데이터 유실 방지 가드 발동] 2차 생존 명소가 단 ${stage2PassResults.length}개이므로 3차 하버사인 거리 필터를 스킵합니다!`,
-          "color: #ff3d00; font-weight: bold; background: #fff3e0; padding: 4px;",
-        );
+      const { data: weatherCache } = await supabase
+        .from("weather_town_cache")
+        .select("county, county_district, weather_data");
+      const weatherMap = {};
+      if (weatherCache) {
+        weatherCache.forEach((item) => {
+          weatherMap[`${item.county}_${item.county_district}`] =
+            item.weather_data[0] || null;
+        });
       }
 
-      // 수집된 생존 명소들을 바탕으로 최종 결과 매핑 루프 가동
-      stage2PassResults.forEach((spot) => {
-        const name = spot.spot_name;
-        if (
-          !spot.lat ||
-          !spot.lng ||
-          !selectedOrigin?.lat ||
-          !selectedOrigin?.lng
-        )
-          return;
-
-        const distanceKm = getHaversineDistance(
-          Number(selectedOrigin.lat),
-          Number(selectedOrigin.lng),
-          Number(spot.lat),
-          Number(spot.lng),
-        );
-        const estimatedTime = distanceKm / currentSpeed;
-
-        // 🌟 가드가 발동하지 않았을 때(남은 명소가 4개 이상일 때)만 3차 거리 필터를 체크함!
-        if (!isShortageFallbackActive) {
-          if (isOverCondition) {
-            if (estimatedTime <= maxHours) {
-              console.log(
-                `%c[❌ 3차 범위 탈락] ${name} -> ${maxHours}시간 '초과' 필터 조건 미달`,
-                "color: #4fc3f7;",
-              );
-              stage3DistanceFailCount++;
-              return;
-            }
-          } else {
-            if (estimatedTime > maxHours) {
-              console.log(
-                `%c[❌ 3차 범위 탈락] ${name} -> ${maxHours}시간 '이내' 필터 범위 조건 초과`,
-                "color: #4fc3f7;",
-              );
-              stage3DistanceFailCount++;
-              return;
-            }
-          }
-          console.log(
-            `%c[🟢 최종합격] ${name} -> 직선거리: ${distanceKm.toFixed(1)}km | 예상소요시간: ${estimatedTime.toFixed(1)}시간`,
-            "color: #2e7d32; font-weight: bold;",
-          );
-        } else {
-          // 가드가 켜져서 프리패스하는 경우의 로그
-          console.log(
-            `%c[🟢 가드통과 명소] ${name} -> 직선거리: ${distanceKm.toFixed(1)}km (하버사인 필터 프리패스)`,
-            "color: #ff3d00; font-weight: bold;",
-          );
-        }
-
-        // 지표 데이터 구조 가공 및 push
-        const congestionScore = 50;
-        const suitabilityScore = 70;
-        const weatherScore = 90;
-        const finalScore = Math.round(
-          (congestionScore + suitabilityScore + weatherScore) / 3,
-        );
-
-        let formattedHours = "상시 개방";
-        if (!spot.is_always_open && spot.open_time && spot.close_time) {
-          formattedHours = `${spot.open_time.substring(0, 5)}~${spot.close_time.substring(0, 5)}`;
-        }
-
-        let formattedClosed = "연중무휴";
-        if (
-          !spot.is_no_holiday &&
-          spot.rest_weekly_days &&
-          spot.rest_weekly_days.length > 0
-        ) {
-          formattedClosed = `매주 ${spot.rest_weekly_days.map((d) => WEEK_DAYS[d]).join(", ")}`;
-        }
-
-        filteredResults.push({
-          name: spot.spot_name || "강원도 맞춤 명소",
-          subtitle:
-            spot.spot_description ||
-            "낭만과 데이터가 가득한 강원도 추천 플레이스",
-          score: finalScore,
-          congestion: congestionScore,
-          suitability: suitabilityScore,
-          weather: gangwonWeather.text,
-          icon: gangwonWeather.icon,
-          hours: formattedHours,
-          closed: formattedClosed,
-          address: spot.address || "강원특별자치도",
-          image: spot.image_url,
-          lat: spot.lat,
-          lng: spot.lng,
-          category_main: spot.category_main,
-          category_mid: spot.category_mid,
-          category_sub: spot.category_sub,
-          distance: distanceKm.toFixed(1),
-          duration: estimatedTime.toFixed(1),
+      const { data: ageWeightsData } = await supabase
+        .from("region_age_weights")
+        .select("*");
+      const ageWeightMap = {};
+      if (ageWeightsData) {
+        ageWeightsData.forEach((row) => {
+          ageWeightMap[row.signgu_name] = row;
         });
+      }
+
+      const targetMainLabels = [];
+      Object.keys(TASTE_DATA_CONFIG).forEach((mainKey) => {
+        if (
+          selectedStyles.some((style) =>
+            TASTE_DATA_CONFIG[mainKey].includes(style),
+          )
+        ) {
+          targetMainLabels.push(MAIN_LABEL_MAP[mainKey]);
+        }
       });
 
-      // 📊 [최종 통계 전광판 로깅]
-      console.log(
-        "%c--------------------------------------------------",
-        "color: #ccc;",
-      );
-      console.log(
-        `%c📊 알고리즘 최종 필터링 분석 통계 리포트`,
-        "font-weight: bold; color: #2D2A4A;",
-      );
-      console.log(`- 전체 원본 수: ${totalSpotsCount}개`);
-      console.log(`- 1차 [취향 불일치] 탈락: ${stage1FailCount}개`);
-      console.log(`- 2차 [휴무일 정보] 탈락: ${stage2HolidayFailCount}개`);
-      console.log(`- 2차 [운영시간 마감] 탈락: ${stage2TimeFailCount}개`);
-      console.log(
-        `- 3차 [하버사인 시간 이내/초과] 탈락: ${stage3DistanceFailCount}개`,
-      );
-      console.log(
-        `%c- 모든 필터를 통과한 순수 최종 후보군: ${filteredResults.length}개`,
-        "font-weight: bold; color: #6B5FD8;",
-      );
-      console.log(
-        "%c==================================================",
-        "color: #6B5FD8; font-weight: bold; font-size: 13px;",
-      );
+      const finalCandidates = filterAndScoreSpots({
+        allSpots: spotsData,
+        selectedOrigin,
+        travelDate,
+        departureTime,
+        travelTime,
+        userMainCategoryLabels: targetMainLabels,
+        selectedStyles,
+        userAgeNum: parseInt(age.replace(/[^0-9]/g, "")) || 20,
+        weatherCacheData: weatherMap,
+        regionAgeWeightsMap: ageWeightMap,
+      });
 
-      if (filteredResults.length === 0) {
+      if (finalCandidates.length === 0) {
         alert(
-          "선택하신 조건(시간/휴무/이내·초과)에 부합하는 명소가 발견되지 않았습니다. 범위를 조절해 보세요! ☺️",
+          "조건에 부합하는 명소가 발견되지 않았습니다. 범위를 조절해 보세요! ☺️",
         );
-        setIsLoading(false);
         return;
       }
 
-      // 최종 정렬 후 상위 10개 반환
-      const finalSortedResults = filteredResults
-        .sort((a, b) => parseFloat(a.duration) - parseFloat(b.duration))
+      const finalSorted = finalCandidates
+        .sort((a, b) => b.spotScore - a.spotScore)
         .slice(0, 10);
 
-      setRecommendations(finalSortedResults);
+      setRecommendations(finalSorted);
       setVisibleCount(3);
       setSelectedPlaceIndex(0);
+
+      // 상위 10개가 링 위에 서자마자 카카오 API 동시 네트워크 연산 개시!
+      await fetchAllTop10KakaoRoutes(finalSorted);
+
       showScreen("screen-result");
     } catch (err) {
-      console.error(err);
-      alert("매칭 연산 수행 도중 예기치 못한 장애가 발생했습니다.");
+      console.error("추천 데이터 파이프라인 크래시:", err);
+      alert("매칭 연산 도중 에러가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -667,18 +429,14 @@ function App() {
   const showScreen = (id) => {
     setActiveScreen(id);
     window.scrollTo(0, 0);
-    if (id === "screen-map") {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "unset";
-    }
+    document.body.style.overflow = id === "screen-map" ? "hidden" : "unset";
   };
+
   const handleMore = () => setVisibleCount(recommendations.length);
 
   return (
     <div className="sb-root relative">
       <TwinklingStars />
-
       {/* SCREEN 1: 시작 화면 */}
       <div
         id="screen-start"
@@ -693,17 +451,16 @@ function App() {
             onClick={() => window.location.reload()}>
             Spot<span className="text-[#6B5FD8]">Balance</span>
           </div>
-
           <div className="flex items-center gap-4">
             <HeaderWeather weather={gangwonWeather} />
             <button
-              className="sb-font-h bg-white/80 backdrop-blur-md text-[#2D2A4A] text-[13px] px-5 py-2.5 rounded-full hover:bg-white border border-[#6B5FD8]/10 transition-all transform active:scale-95 shadow-md flex items-center gap-2 font-black"
+              className="sb-font-h bg-white/80 backdrop-blur-md text-[#2D2A4A] text-[13px] px-5 py-2.5 rounded-full hover:bg-white border border-[#6B5FD8]/10 transition-all font-black flex items-center gap-2"
               onClick={() => showScreen("screen-intro")}>
               <Info size={16} className="text-[#6B5FD8]" />
               서비스 소개
             </button>
             <button
-              className="sb-font-h bg-[#6B5FD8] text-white text-[13px] px-5 py-2.5 rounded-full hover:bg-[#5A4EBF] transition-all transform active:scale-95 shadow-xl shadow-[#6B5FD8]/25 flex items-center gap-2"
+              className="sb-font-h bg-[#6B5FD8] text-white text-[13px] px-5 py-2.5 rounded-full hover:bg-[#5A4EBF] transition-all shadow-xl flex items-center gap-2"
               onClick={() => window.location.reload()}>
               <RefreshCw size={14} />
               새로고침
@@ -713,10 +470,10 @@ function App() {
 
         <main className="flex-grow flex flex-col items-center px-6 pt-10 pb-8">
           <div className="text-center mb-14 z-10">
-            <h1 className="sb-hero text-6xl md:text-[80px] text-white mb-4 leading-[1.1] drop-shadow-[0_8px_24px_rgba(0,0,0,0.2)] tracking-tighter">
+            <h1 className="sb-hero text-6xl md:text-[80px] text-white mb-4 leading-[1.1] tracking-tighter">
               혼잡 없이, 나답게
             </h1>
-            <h1 className="sb-hero text-6xl md:text-[80px] text-[#6B5FD8] mb-8 leading-[1.1] drop-shadow-[0_4px_16px_rgba(107,95,216,0.25)] tracking-tighter">
+            <h1 className="sb-hero text-6xl md:text-[80px] text-[#6B5FD8] mb-8 leading-[1.1] tracking-tighter">
               떠나자 강원도
             </h1>
             <p className="text-xl md:text-2xl font-semibold text-[#2D2A4A] opacity-95 max-w-4xl mx-auto leading-relaxed">
@@ -730,9 +487,7 @@ function App() {
             <NatureSilhouette />
             <MountainSilhouette />
             <SailboatSilhouette />
-
             <div className="main-card relative max-w-[860px] !py-6 !px-6 md:!py-7 md:!px-8">
-              {/* 🌟 1층 (상단 줄): 여행의 핵심 축 [출발지(4) + 날짜(4) + 출발시간(4)] */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
                 <div className="h-full md:col-span-4">
                   <OriginSearchPicker
@@ -741,7 +496,6 @@ function App() {
                     onSelectFullInfo={setSelectedOrigin}
                   />
                 </div>
-
                 <div className="h-full md:col-span-4">
                   <CalendarPicker
                     value={travelDate}
@@ -749,7 +503,6 @@ function App() {
                     onSelect={setTravelDate}
                   />
                 </div>
-
                 <div className="h-full md:col-span-4">
                   <DepartureTimePicker
                     value={departureTime}
@@ -758,8 +511,6 @@ function App() {
                   />
                 </div>
               </div>
-
-              {/* 🌟 2층 (하단 줄): 필터 상세 조건 [이동시간(3) + 성별(2) + 나이(2) + 선호스타일(5)] */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6">
                 <div className="h-full md:col-span-3">
                   <SelectItem
@@ -769,7 +520,6 @@ function App() {
                     onSelect={setTravelTime}
                   />
                 </div>
-
                 <div className="h-full md:col-span-2">
                   <SelectItem
                     label="성별"
@@ -778,7 +528,6 @@ function App() {
                     onSelect={setGender}
                   />
                 </div>
-
                 <div className="h-full md:col-span-2">
                   <SelectItem
                     label="나이"
@@ -787,7 +536,6 @@ function App() {
                     onSelect={setAge}
                   />
                 </div>
-
                 <div className="h-full md:col-span-5">
                   <MultiTastePicker
                     selectedSubs={selectedStyles}
@@ -795,9 +543,8 @@ function App() {
                   />
                 </div>
               </div>
-
               <button
-                className="btn-ai py-5 text-lg sb-font-h disabled:opacity-50"
+                className="btn-ai py-5 text-lg sb-font-h"
                 onClick={handleGetRecommendations}
                 disabled={isLoading}>
                 {isLoading ? (
@@ -806,15 +553,14 @@ function App() {
                   <Sparkles size={22} fill="currentColor" />
                 )}
                 {isLoading
-                  ? "강원도 빅데이터 분석 중..."
-                  : "AI 맞춤 여행지 추천받기"}
+                  ? "강원도 관광지 빅데이터 분석 중"
+                  : "맞춤 여행지 추천받기"}
               </button>
             </div>
           </div>
         </main>
-
         <footer className="w-full py-12 flex justify-center items-center border-t border-white/40 relative z-10">
-          <div className="text-gray-600 text-[14px] sb-font-h italic text-center">
+          <div className="text-gray-600 text-[14px] sb-font-h italic">
             &copy; 2026 SpotBalance. All rights reserved.
           </div>
         </footer>
@@ -835,7 +581,7 @@ function App() {
             Spot<span className="text-[#6B5FD8]">Balance</span>
           </div>
           <button
-            className="bg-white/60 backdrop-blur-md text-[#2D2A4A] text-[13px] sb-font-h px-6 py-2 rounded-full hover:bg-white/90 transition-all flex items-center gap-2 shadow-lg"
+            className="bg-white/60 backdrop-blur-md text-[#2D2A4A] text-[13px] sb-font-h px-6 py-2 rounded-full shadow-lg flex items-center gap-2"
             onClick={() => {
               showScreen("screen-start");
               setVisibleCount(3);
@@ -846,12 +592,9 @@ function App() {
         </header>
         <main className="flex-grow flex flex-col items-center px-6 py-6">
           <div className="text-center mb-10">
-            <h2 className="text-4xl md:text-5xl text-white sb-hero mb-4 drop-shadow-lg leading-tight">
-              지금 가장 좋은{" "}
-              <span className="text-[#F4C84A] drop-shadow-[0_0_15px_rgba(244,200,74,0.6)]">
-                강원도
-              </span>{" "}
-              를 찾아보세요
+            <h2 className="text-4xl md:text-5xl text-white sb-hero mb-4 drop-shadow-lg">
+              지금 가장 좋은 <span className="text-[#F4C84A]">강원도</span> 를
+              찾아보세요
             </h2>
           </div>
           <div className="w-full max-w-4xl space-y-4">
@@ -860,21 +603,27 @@ function App() {
                 key={index}
                 rank={index + 1}
                 {...item}
-                onShowMap={() => showScreen("screen-map")}
+                // 🌟 [다리 유수 해결] 이제 실제 캐시 데이터의 날씨 기온인 temp도 명확하게 배송됩니다!
+                temp={item.temp}
+                kakaoDist={item.distance}
+                kakaoTime={item.duration}
+                startOrigin={selectedOrigin}
+                travelDate={travelDate}
+                departureTime={departureTime}
+                onCardClick={() => setSelectedPlaceIndex(index)}
               />
             ))}
-
             <div className="flex flex-col gap-4 mt-10 items-center">
               {visibleCount < recommendations.length ? (
                 <button
-                  className="bg-white/80 backdrop-blur-md border border-[#6B5FD8]/20 text-[#6B5FD8] sb-font-h px-12 py-4 rounded-2xl shadow-lg hover:bg-[#6B5FD8] hover:text-white transition-all flex items-center gap-3"
+                  className="bg-white/80 backdrop-blur-md border border-[#6B5FD8]/20 text-[#6B5FD8] sb-font-h px-12 py-4 rounded-2xl shadow-lg flex items-center gap-3"
                   onClick={handleMore}>
                   <Plus size={20} />
                   관광지 더 보기
                 </button>
               ) : (
                 <button
-                  className="bg-white/80 backdrop-blur-md border border-gray-200 text-gray-500 sb-font-h px-12 py-4 rounded-2xl shadow-lg hover:bg-gray-100 transition-all flex items-center gap-3"
+                  className="bg-white/80 backdrop-blur-md border border-gray-200 text-gray-500 sb-font-h px-12 py-4 rounded-2xl shadow-lg flex items-center gap-3"
                   onClick={() => setVisibleCount(3)}>
                   <Minus size={20} />
                   결과 접기
@@ -904,12 +653,12 @@ function App() {
             className="text-2xl sb-font-h text-[#2D2A4A] tracking-tighter cursor-pointer"
             onClick={() => showScreen("screen-start")}>
             Spot<span className="text-[#6B5FD8]">Balance</span>{" "}
-            <span className="text-sm text-[#8884A8] ml-2 font-black uppercase">
+            <span className="text-sm text-[#8884A8] ml-2 font-black">
               | Smart Route
             </span>
           </div>
           <button
-            className="bg-[#6B5FD8] text-white text-[14px] sb-font-h px-8 py-3 rounded-full hover:bg-[#5A4EBF] transition-all flex items-center gap-2"
+            className="bg-[#6B5FD8] text-white text-[14px] sb-font-h px-8 py-3 rounded-full flex items-center gap-2"
             onClick={() => showScreen("screen-result")}>
             <List size={16} />
             목록으로 돌아가기
@@ -919,63 +668,54 @@ function App() {
           <div className="w-full md:w-[420px] bg-white shadow-2xl z-20 overflow-y-auto p-8 flex flex-col gap-8">
             <div className="flex flex-col gap-0">
               <div className="relative pl-10 pb-6">
-                <div className="absolute left-0 top-0 w-7 h-7 bg-[#6B5FD8] border-4 border-white rounded-full z-10 shadow-lg"></div>
+                <div className="absolute left-0 top-0 w-7 h-7 bg-[#6B5FD8] border-4 border-white rounded-full z-10"></div>
                 <div className="absolute left-3.5 top-7 bottom-0 w-0.5 border-dashed border-l-2 border-[#6B5FD8]"></div>
-                <div className="text-xs text-[#8884A8] sb-font-h uppercase mb-1">
+                <div className="text-xs text-[#8884A8] sb-font-h mb-1">
                   출발지
                 </div>
                 <div className="text-xl sb-font-h text-[#2D2A4A]">{origin}</div>
               </div>
-
               {recommendations.map((item, idx) => (
                 <div
                   key={idx}
-                  className={`relative pl-10 pb-6 cursor-pointer group ${selectedPlaceIndex === idx ? "opacity-100" : "opacity-60 hover:opacity-100"}`}
+                  className={`relative pl-10 pb-6 cursor-pointer group transition-all ${selectedPlaceIndex === idx ? "opacity-100 font-bold" : "opacity-40"}`}
                   onClick={() => setSelectedPlaceIndex(idx)}>
                   <div
-                    className={`absolute left-0 top-0 w-7 h-7 ${selectedPlaceIndex === idx ? "bg-[#6B5FD8]" : "bg-gray-400 group-hover:bg-[#6B5FD8]"} border-4 border-white rounded-full z-10 flex items-center justify-center text-[10px] text-white sb-font-h shadow-lg transition-colors`}>
+                    className={`absolute left-0 top-0 w-7 h-7 ${selectedPlaceIndex === idx ? "bg-[#6B5FD8]" : "bg-gray-400"} border-4 border-white rounded-full z-10 flex items-center justify-center text-[10px] text-white shadow-lg`}>
                     {idx + 1}
                   </div>
                   {idx < recommendations.length - 1 && (
                     <div className="absolute left-3.5 top-7 bottom-0 w-0.5 border-dashed border-l-2 border-[#6B5FD8]/25"></div>
                   )}
-                  <div
-                    className={`text-xs sb-font-h uppercase mb-1 ${selectedPlaceIndex === idx ? "text-[#6B5FD8]" : "text-[#8884A8]"}`}>
+                  <div className="text-xs sb-font-h mb-1 text-[#8884A8]">
                     추천 목적지 {idx + 1}
                   </div>
-                  <div
-                    className={`text-lg sb-font-h transition-colors ${selectedPlaceIndex === idx ? "text-[#2D2A4A]" : "text-gray-500"}`}>
+                  <div className="text-lg sb-font-h text-[#2D2A4A]">
                     {item.name}
                   </div>
                 </div>
               ))}
             </div>
-
             {recommendations.length > 0 && (
               <div className="mt-auto bg-[#2D2A4A] text-white p-8 rounded-[36px] shadow-2xl">
                 <div className="text-[10px] sb-font-h opacity-60 mb-2 uppercase tracking-widest">
                   Total Journey
                 </div>
-                <div className="text-[11px] sb-font-h opacity-80 mb-1">
-                  선택지:{" "}
-                  {recommendations[selectedPlaceIndex]?.name || "선택 전"}
+                <div className="text-[11px] sb-font-h opacity-80 mb-1 truncate">
+                  선택지: {recommendations[selectedPlaceIndex]?.name}
                 </div>
                 <div className="text-4xl sb-font-h italic">
-                  {recommendations[selectedPlaceIndex]
-                    ? `${recommendations[selectedPlaceIndex].duration} Hour`
-                    : "0.0 Hour"}
+                  {recommendations[selectedPlaceIndex]?.duration
+                    ? `${recommendations[selectedPlaceIndex].duration} 분`
+                    : "계산 중..."}
                 </div>
                 <div className="text-[13px] font-bold text-[#6B5FD8] mt-1">
                   실 주행 거리:{" "}
                   {recommendations[selectedPlaceIndex]?.distance || 0} km
                 </div>
-                <div className="text-[10px] sb-font-h opacity-40 mt-2">
-                  ※ 예상 소요시간은 실시간 교통정보에 따라 변동될 수 있습니다.
-                </div>
               </div>
             )}
           </div>
-
           <div className="flex-grow relative bg-white overflow-hidden">
             {recommendations.length > 0 ? (
               <KakaoMapView
@@ -983,10 +723,12 @@ function App() {
                 targetSpot={
                   recommendations[selectedPlaceIndex] || recommendations[0]
                 }
+                // 마스터 연동 맵에서 현재 선택된 순위의 실제 실도로 라인 패스만 정밀 공급!
+                routeLinePath={kakaoRoutesMaster[selectedPlaceIndex] || []}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-400 font-bold">
-                추천된 경로 데이터가 존재하지 않습니다.
+              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                데이터가 없습니다.
               </div>
             )}
           </div>
