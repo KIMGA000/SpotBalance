@@ -258,6 +258,7 @@ export function filterAndScoreSpots({
     const finalScorePercent = (rawScore / maxPossibleScore) * 100;
 
     filteredResults.push({
+      ...spot,
       name: spot.spot_name,
       subtitle: spot.spot_description || "낭만 가득한 강원도 추천 플레이스",
       spotScore: Math.min(100, Math.round(finalScorePercent * 100) / 100),
@@ -271,6 +272,11 @@ export function filterAndScoreSpots({
       category_main: spot.category_main,
       category_mid: spot.category_mid,
       category_sub: spot.category_sub,
+      open_time: spot.open_time,
+      close_time: spot.close_time,
+      rest_weekly_days: spot.rest_weekly_days,
+      is_always_open: spot.is_always_open,
+      is_no_holiday: spot.is_no_holiday,
       calculatedRoadDist: realRoadDist,
       distance: realRoadDist.toFixed(1),
       duration: estimatedTime.toFixed(1),
