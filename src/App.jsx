@@ -401,7 +401,7 @@ function App() {
       const finalSorted = finalCandidates
         .sort((a, b) => b.spotScore - a.spotScore)
         .slice(0, 10);
-
+      console.log("최종 추천 리스트 확인:", finalSorted);
       setRecommendations(finalSorted);
       setVisibleCount(3);
       setSelectedPlaceIndex(0);
@@ -603,13 +603,13 @@ function App() {
                 key={index}
                 rank={index + 1}
                 {...item}
-                // 🌟 [다리 유수 해결] 이제 실제 캐시 데이터의 날씨 기온인 temp도 명확하게 배송됩니다!
                 temp={item.temp}
                 kakaoDist={item.distance}
                 kakaoTime={item.duration}
                 startOrigin={selectedOrigin}
                 travelDate={travelDate}
                 departureTime={departureTime}
+                selectedStyles={selectedStyles}
                 onCardClick={() => setSelectedPlaceIndex(index)}
               />
             ))}
