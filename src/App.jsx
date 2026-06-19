@@ -1,7 +1,11 @@
+import {
+  filterAndScoreSpots,
+  getUserPreferenceWeights,
+} from "./utils/spotRecommender";
+import { getOrCreateUserId } from "./utils/auth";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./index.css";
-import { createClient } from "@supabase/supabase-js";
-
+import { supabase } from "./supabaseClient";
 import {
   Sun,
   CloudSun,
@@ -35,13 +39,6 @@ import {
 import { RecommendationCard } from "./components/RecommendationCard";
 import { ServiceIntro } from "./components/ServiceIntro";
 import { KakaoMapView } from "./components/KakaoMapView";
-
-// 🌟 외부로 격리 분쇄한 최적화 알고리즘 엔진 임포트
-import { filterAndScoreSpots } from "./utils/spotRecommender";
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const MAIN_LABEL_MAP = {
   nature: "자연관광",
@@ -100,13 +97,11 @@ function App() {
   const [selectedPlaceIndex, setSelectedPlaceIndex] = useState(0);
   const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-
-  // 10개 노선의 카카오 실도로 폴리라인 패스들을 총괄 보관할 마스터 딕셔너리 상태
   const [kakaoRoutesMaster, setKakaoRoutesMaster] = useState({});
 
   const [gangwonWeather, setGangwonWeather] = useState({
     text: "맑음",
-    temp: 22,
+    temp: 0,
     icon: "cloud-sun",
   });
 
@@ -126,7 +121,6 @@ function App() {
     "3시간 이내",
     "4시간 이내",
     "5시간 이내",
-    "5시간 초과",
   ];
   const departureTimeOptions = [
     "06:00",
@@ -204,9 +198,6 @@ function App() {
     initializeAppServices();
   }, []);
 
-  /**
-   * 🚗 [완치 완료] 10개 노선 동시 렌더링 수집 파이프라인 방어 복원 엔진
-   */
   const fetchAllTop10KakaoRoutes = async (top10Spots) => {
     const KAKAO_REST_KEY = import.meta.env.VITE_KAKAO_REST_KEY;
     if (!KAKAO_REST_KEY) {
@@ -298,7 +289,7 @@ function App() {
     setKakaoRoutesMaster(updatedRoutesMap);
   };
 
-  // 🚀 알고리즘 연산 위임 파이프라인
+  // 알고리즘 연산 위임 파이프라인
   const handleGetRecommendations = async () => {
     document.body.style.overflow = "unset";
     if (selectedStyles.length === 0) {
@@ -332,40 +323,46 @@ function App() {
     setIsLoading(true);
 
     try {
-      const { data: spotsData, error } = await supabase
-        .from("spots")
-        .select(
-          `
-          id, spot_name, spot_description, address, image_url, is_always_open,
-          open_time, close_time, last_entry_time, is_no_holiday, rest_weekly_days, is_holiday_close,
-          category_main, category_mid, category_sub, lat, lng, county, county_district,
-          spot_visitor_trends(visitor_count)
-        `,
-        )
-        .eq("spot_visitor_trends.target_date", targetQueryDate);
+      const userId = getOrCreateUserId();
+
+      // 1. 필요한 모든 데이터를 한 번씩 호출
+      const [
+        preferenceWeights,
+        { data: spotsData, error },
+        { data: weatherCache },
+        { data: ageWeightsData },
+      ] = await Promise.all([
+        getUserPreferenceWeights(supabase, userId),
+        supabase
+          .from("spots")
+          .select(
+            `
+            id, spot_name, spot_description, address, image_url, is_always_open,
+            open_time, close_time, last_entry_time, is_no_holiday, rest_weekly_days, is_holiday_close,
+            category_main, category_mid, category_sub, lat, lng, county, county_district,
+            spot_visitor_trends(visitor_count)
+          `,
+          )
+          .eq("spot_visitor_trends.target_date", targetQueryDate),
+        supabase
+          .from("weather_town_cache")
+          .select("county, county_district, weather_data"),
+        supabase.from("region_age_weights").select("*"),
+      ]);
 
       if (error) throw error;
 
-      const { data: weatherCache } = await supabase
-        .from("weather_town_cache")
-        .select("county, county_district, weather_data");
+      // 2. 데이터 가공 (맵핑)
       const weatherMap = {};
-      if (weatherCache) {
-        weatherCache.forEach((item) => {
-          weatherMap[`${item.county}_${item.county_district}`] =
-            item.weather_data[0] || null;
-        });
-      }
+      weatherCache?.forEach((item) => {
+        weatherMap[`${item.nx}_${item.ny}`] =
+          item.weather_data || null;
+      });
 
-      const { data: ageWeightsData } = await supabase
-        .from("region_age_weights")
-        .select("*");
       const ageWeightMap = {};
-      if (ageWeightsData) {
-        ageWeightsData.forEach((row) => {
-          ageWeightMap[row.signgu_name] = row;
-        });
-      }
+      ageWeightsData?.forEach((row) => {
+        ageWeightMap[row.signgu_name] = row;
+      });
 
       const targetMainLabels = [];
       Object.keys(TASTE_DATA_CONFIG).forEach((mainKey) => {
@@ -378,8 +375,10 @@ function App() {
         }
       });
 
-      const finalCandidates = filterAndScoreSpots({
+      // 3. 알고리즘 엔진 호출 (순수 데이터만 전달)
+      const finalCandidates = await filterAndScoreSpots({
         allSpots: spotsData,
+        preferenceWeights: preferenceWeights,
         selectedOrigin,
         travelDate,
         departureTime,
@@ -398,17 +397,31 @@ function App() {
         return;
       }
 
+      // 4. 결과 처리
       const finalSorted = finalCandidates
         .sort((a, b) => b.spotScore - a.spotScore)
         .slice(0, 10);
-      console.log("최종 추천 리스트 확인:", finalSorted);
+
       setRecommendations(finalSorted);
       setVisibleCount(3);
       setSelectedPlaceIndex(0);
 
-      // 상위 10개가 링 위에 서자마자 카카오 API 동시 네트워크 연산 개시!
-      await fetchAllTop10KakaoRoutes(finalSorted);
+      const logEntries = finalSorted.map((spot, index) => ({
+        spot_id: String(spot.id),
+        age_group: age,
+        gender: gender,
+        recommended_rank: index + 1,
+        recommend_score: spot.spotScore,
+      }));
 
+      supabase
+        .from("recommendation_logs")
+        .insert(logEntries)
+        .then(() => {
+          console.log("추천 로그 기록 완료");
+        });
+
+      await fetchAllTop10KakaoRoutes(finalSorted);
       showScreen("screen-result");
     } catch (err) {
       console.error("추천 데이터 파이프라인 크래시:", err);
@@ -417,7 +430,18 @@ function App() {
       setIsLoading(false);
     }
   };
+  const logRecommendations = async (results, userProfile) => {
+    const userId = getOrCreateUserId();
+    const logs = results.map((spot, index) => ({
+      spot_id: spot.id,
+      gender: userProfile.gender,
+      age_group: userProfile.age,
+      recommended_rank: index + 1,
+      recommend_score: spot.spotScore,
+    }));
 
+    await supabase.from("recommendation_logs").insert(logs);
+  };
   const handleStyleToggle = (subName) => {
     if (selectedStyles.includes(subName)) {
       setSelectedStyles(selectedStyles.filter((item) => item !== subName));
@@ -610,6 +634,8 @@ function App() {
                 travelDate={travelDate}
                 departureTime={departureTime}
                 selectedStyles={selectedStyles}
+                age={age}
+                gender={gender}
                 onCardClick={() => setSelectedPlaceIndex(index)}
               />
             ))}
@@ -723,7 +749,6 @@ function App() {
                 targetSpot={
                   recommendations[selectedPlaceIndex] || recommendations[0]
                 }
-                // 마스터 연동 맵에서 현재 선택된 순위의 실제 실도로 라인 패스만 정밀 공급!
                 routeLinePath={kakaoRoutesMaster[selectedPlaceIndex] || []}
               />
             ) : (

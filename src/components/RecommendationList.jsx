@@ -17,7 +17,7 @@ export default function RecommendationList({
       weatherGuardResult,
     );
 
-    // 2. 가영님 핵심 오더: 추천 결과는 최소 3개에서 최대 10개로 컷팅!
+    // 2. 추천 결과는 최소 3개에서 최대 10개로 컷팅
     const slicedResult = result.slice(0, 10);
     setRecommendations(slicedResult);
   }, [userInput, allSpots, weatherGuardResult]);

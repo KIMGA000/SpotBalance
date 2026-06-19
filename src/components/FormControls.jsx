@@ -24,7 +24,7 @@ const TASTE_DATA = {
   },
 };
 
-// 1. 선호 스타일 피커 (투명 모자이크 백드롭 + 화살표 배제)
+// 1. 선호 스타일 피커
 export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedMains, setSelectedMains] = useState([]);
@@ -191,7 +191,7 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
   );
 };
 
-// 2. 출발지 설정 피커 (OriginSearchPicker) - 화살표 배제
+// 2. 출발지 설정 피커 (OriginSearchPicker)
 export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [keyword, setKeyword] = useState("");
@@ -328,7 +328,6 @@ export const OriginSearchPicker = ({ value, onSelect, onSelectFullInfo }) => {
   );
 };
 
-// 3. 캘린더 날짜 피커 (CalendarPicker) - 화살표 배제
 export const CalendarPicker = ({ value, options, onSelect }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -435,7 +434,6 @@ export const SelectItem = ({ label, value, options, onSelect }) => {
           <span className="text-[17px] text-[#2D2A4A] sb-font-h whitespace-nowrap font-black">
             {value}
           </span>
-          {/* 출발 시간과 디자인 완성도를 맞추기 위해 strokeWidth={2.5} 굵기 동기화 */}
           <ChevronDown
             size={16}
             strokeWidth={2.5}
