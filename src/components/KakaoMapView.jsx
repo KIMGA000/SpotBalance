@@ -1,94 +1,132 @@
 import React, { useEffect, useRef } from "react";
 
-export const KakaoMapView = ({ startOrigin, targetSpot }) => {
-  const mapContainer = useRef(null);
+export const KakaoMapView = ({ startOrigin, targetSpot, routeLinePath }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
   const polylineRef = useRef(null);
   const markersRef = useRef([]);
 
-  useEffect(() => {
-    // 카카오 객체 검증
-    if (!window.kakao || !window.kakao.maps || !mapContainer.current) return;
+  const mapContainerCallback = (node) => {
+    if (node !== null) {
+      mapContainerRef.current = node;
 
-    // 1. 지도 초기화 (기본 중심: 출발지 좌표)
+      // 상자가 확보되자마자 카카오맵 인프라 체크
+      if (!window.kakao || !window.kakao.maps) return;
+
+      const startPos = new window.kakao.maps.LatLng(
+        Number(startOrigin?.lat || 37.8853),
+        Number(startOrigin?.lng || 127.7298),
+      );
+
+      // 1. 지도가 없으면 즉시 생성
+      if (!mapRef.current) {
+        const options = {
+          center: startPos,
+          level: 7,
+        };
+        mapRef.current = new window.kakao.maps.Map(node, options);
+      }
+
+      // 2. 상자가 열린 순간 카카오 맵 타일 강제 동기화 리사이징
+      const map = mapRef.current;
+      map.relayout();
+
+      // 3. 데이터가 있다면 즉시 출발지 -> 1위 목적지 뷰포트 바운즈 정렬
+      if (startOrigin && targetSpot && targetSpot.lat && targetSpot.lng) {
+        const destPos = new window.kakao.maps.LatLng(
+          Number(targetSpot.lat),
+          Number(targetSpot.lng),
+        );
+
+        const bounds = new window.kakao.maps.LatLngBounds();
+        bounds.extend(startPos);
+        bounds.extend(destPos);
+
+        // 렌더링 틱을 나누어 안전하게 스케일 매핑
+        setTimeout(() => {
+          map.relayout();
+          map.setBounds(bounds);
+        }, 50);
+      } else {
+        map.setCenter(startPos);
+      }
+    }
+  };
+
+  // ❷ [데이터가 동적으로 변경될 때 마커와 선을 그려주는 실시간 스트림]
+  useEffect(() => {
+    if (!mapRef.current || !startOrigin) return;
+
+    const map = mapRef.current;
+    map.relayout();
+
+    // 기존 찌꺼기 완벽 플러시(Flush)
+    markersRef.current.forEach((m) => m.setMap(null));
+    markersRef.current = [];
+
+    if (polylineRef.current) {
+      polylineRef.current.setMap(null);
+      polylineRef.current = null;
+    }
+
     const startPos = new window.kakao.maps.LatLng(
       Number(startOrigin.lat),
       Number(startOrigin.lng),
     );
-    const options = {
-      center: startPos,
-      level: 7,
-    };
-    const map = new window.kakao.maps.Map(mapContainer.current, options);
+    const startMarker = new window.kakao.maps.Marker({
+      position: startPos,
+      map: map,
+    });
+    markersRef.current.push(startMarker);
 
-    // 2. 마커 및 경로 갱신 함수
-    const updateMapRoute = () => {
-      // 기존 마커 및 선 초기화
-      markersRef.current.forEach((m) => m.setMap(null));
-      markersRef.current = [];
-      if (polylineRef.current) {
-        polylineRef.current.setMap(null);
-        polylineRef.current = null;
-      }
+    if (!targetSpot || !targetSpot.lat || !targetSpot.lng) {
+      map.setCenter(startPos);
+      return;
+    }
 
-      if (!targetSpot) return;
+    const destPos = new window.kakao.maps.LatLng(
+      Number(targetSpot.lat),
+      Number(targetSpot.lng),
+    );
+    const destMarker = new window.kakao.maps.Marker({
+      position: destPos,
+      map: map,
+    });
+    markersRef.current.push(destMarker);
 
-      const destPos = new window.kakao.maps.LatLng(
-        Number(targetSpot.lat),
-        Number(targetSpot.lng),
+    // 카카오 실도로 Polyline 패스선 드로잉
+    if (routeLinePath && routeLinePath.length > 0) {
+      const linePath = routeLinePath.map(
+        (pt) => new window.kakao.maps.LatLng(Number(pt.lat), Number(pt.lng)),
       );
 
-      // [출발지 마커 생성]
-      const startMarker = new window.kakao.maps.Marker({
-        position: startPos,
-        map: map,
-      });
-      // [목적지 마커 생성]
-      const destMarker = new window.kakao.maps.Marker({
-        position: destPos,
-        map: map,
+      const polyline = new window.kakao.maps.Polyline({
+        path: linePath,
+        strokeWeight: 6,
+        strokeColor: "#6B5FD8",
+        strokeOpacity: 0.85,
+        strokeStyle: "solid",
       });
 
-      markersRef.current = [startMarker, destMarker];
+      polyline.setMap(map);
+      polylineRef.current = polyline;
+    }
 
-      // 🌟 [핵심] 카카오가 준 pathVertexes 데이터를 가져와 지도에 도로 실선 그리기
-      if (targetSpot.pathVertexes && targetSpot.pathVertexes.length > 0) {
-        const linePath = [];
-        const vertexes = targetSpot.pathVertexes;
-
-        for (let i = 0; i < vertexes.length; i += 2) {
-          const lng = vertexes[i];
-          const lat = vertexes[i + 1];
-          linePath.push(new window.kakao.maps.LatLng(lat, lng));
-        }
-
-        // SpotBalance 시그니처 보라색 테마 경로선 설정
-        const polyline = new window.kakao.maps.Polyline({
-          path: linePath,
-          strokeWeight: 6,
-          strokeColor: "#6B5FD8",
-          strokeOpacity: 0.85,
-          strokeStyle: "solid",
-        });
-
-        polyline.setMap(map);
-        polylineRef.current = polyline;
-
-        // 화면 줌 레벨 조정: 출발지와 목적지가 한눈에 꽉 차도록 세팅!
-        const bounds = new window.kakao.maps.LatLngBounds();
-        bounds.extend(startPos);
-        bounds.extend(destPos);
-        map.setBounds(bounds);
-      }
-    };
-
-    updateMapRoute();
-  }, [startOrigin, targetSpot]);
+    // 출발지와 1위 목적지를 감싸는 최적의 줌 배율 정렬 보정
+    setTimeout(() => {
+      map.relayout();
+      const bounds = new window.kakao.maps.LatLngBounds();
+      bounds.extend(startPos);
+      bounds.extend(destPos);
+      map.setBounds(bounds);
+    }, 100);
+  }, [startOrigin, targetSpot, routeLinePath]);
 
   return (
     <div
-      ref={mapContainer}
-      className="w-full h-full"
-      style={{ minHeight: "500px" }}
+      ref={mapContainerCallback}
+      className="w-full h-full relative"
+      style={{ minHeight: "100%", height: "100%", minWidth: "100%" }}
     />
   );
 };
