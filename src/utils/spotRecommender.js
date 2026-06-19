@@ -1,8 +1,62 @@
-/**
- * 🗺️ 두 위경도 좌표 사이의 하버사인 직선 거리 구하기 (단위: km)
- */
+const actionWeights = {
+  detail_view: 1,
+  review_view: 2,
+  like: 2,
+  like_cancel: -2,
+  route_search: 5,
+  dislike: -3,
+  dislike_cancel: 3,
+};
+
+export async function getUserPreferenceWeights(supabase, userId) {
+  const { data: logs } = await supabase
+    .from("user_action_logs")
+    .select("spot_id, action_type, main_category, mid_category, sub_category")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (!logs || logs.length === 0) return {};
+
+  const latestStates = {};
+  logs.forEach((log) => {
+    if (
+      log.action_type === "like_cancel" ||
+      log.action_type === "dislike_cancel"
+    ) {
+      latestStates[log.spot_id] = { action: null };
+    } else {
+      latestStates[log.spot_id] = {
+        action: log.action_type,
+        categories: {
+          main: log.main_category,
+          mid: log.mid_category,
+          sub: log.sub_category,
+        },
+      };
+    }
+  });
+
+  const weights = {};
+  Object.values(latestStates).forEach(({ action, categories }) => {
+    if (!action || !categories) return;
+
+    const weight = actionWeights[action] || 0;
+
+    ["main", "mid", "sub"].forEach((level) => {
+      let cats = categories[level];
+      const catArray = typeof cats === "string" ? JSON.parse(cats) : cats;
+
+      catArray?.forEach((cat) => {
+        weights[cat] = (weights[cat] || 0) + weight;
+      });
+    });
+  });
+
+  return weights;
+}
+
 export function getHaversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // 지구 반지름
+  const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -15,51 +69,26 @@ export function getHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-/**
- * 🌡️ [가영님 신규 기획 표준 엄격 반영] 5단계 임계점 구간형 기온 패널티 연산 엔진
- */
 function calculateTemperaturePenalty(month, tempValue) {
-  // ❶ [최우선 가드] 극한 기온 오버라이딩 시스템 (폭염 33℃ 이상 / 한파 -1℃ 이하 ➔ 무조건 0.6)
-  if (tempValue >= 33 || tempValue <= -1) {
-    return 0.6;
-  }
+  if (tempValue === null) return 0.1;
+  if (tempValue >= 33 || tempValue <= -1) return 0.6;
+  if (tempValue >= 15 && tempValue <= 25) return 1.0;
 
-  let targetMin = 19,
-    targetMax = 23; // 봄·가을 기본값
-
-  if (month >= 6 && month <= 8) {
-    targetMin = 25;
-    targetMax = 28; // 여름
-  } else if (month === 12 || month === 1 || month === 2) {
-    targetMin = 18;
-    targetMax = 20; // 겨울
-  }
-
-  // ❷ 쾌적 구간 (기준 범위 내부) ➔ 1.0
-  if (tempValue >= targetMin && tempValue <= targetMax) {
-    return 1.0;
-  }
-
-  // 이탈 오차 절대값 계산
-  const diff =
-    tempValue < targetMin ? targetMin - tempValue : tempValue - targetMax;
-
-  // ❸ 다소 불편 (기준에서 ±3℃ 이내) ➔ 0.9
-  if (diff <= 3) {
+  if (
+    (tempValue >= 10 && tempValue <= 14) ||
+    (tempValue >= 26 && tempValue <= 29)
+  )
     return 0.9;
-  }
-  // ❹ 불편 (기준에서 ±6℃ 이내) ➔ 0.8
-  if (diff <= 6) {
+  if (
+    (tempValue >= 5 && tempValue <= 9) ||
+    (tempValue >= 30 && tempValue <= 32)
+  )
     return 0.8;
-  }
-  // ❺ 매우 불편 (기준에서 ±6℃ 초과) ➔ 0.7
+
   return 0.7;
 }
 
-/**
- * 🚀 SpotBalance 빅데이터 정밀 필터링 및 최종 점수 연산 파이프라인
- */
-export function filterAndScoreSpots({
+export async function filterAndScoreSpots({
   allSpots,
   selectedOrigin,
   travelDate,
@@ -70,6 +99,7 @@ export function filterAndScoreSpots({
   userAgeNum,
   weatherCacheData,
   regionAgeWeightsMap,
+  preferenceWeights,
 }) {
   const match = travelDate.match(/(\d{4})\.\s*(\d{2})\.\s*(\d{2})/);
   const targetQueryDate = match
@@ -98,12 +128,9 @@ export function filterAndScoreSpots({
   const stage2PassResults = [];
 
   allSpots.forEach((spot) => {
-    const name = spot.spot_name || "이름 없는 명소";
     const spotMains = Array.isArray(spot.category_main)
       ? spot.category_main
       : [spot.category_main].filter(Boolean);
-
-    // 🔴 [STAGE 1] 취향 필터
     const isMainMatched = spotMains.some((mainVal) =>
       userMainCategoryLabels.includes(mainVal),
     );
@@ -112,7 +139,6 @@ export function filterAndScoreSpots({
       return;
     }
 
-    // 🟠 [STAGE 2] 시공간 복합 마감 필터
     if (!(spot.is_always_open && spot.is_no_holiday)) {
       if (
         spot.rest_weekly_days &&
@@ -160,7 +186,6 @@ export function filterAndScoreSpots({
   const isShortageFallbackActive = stage2PassResults.length <= 3;
   const filteredResults = [];
 
-  // 🗺️ 3차 거리 필터링 구역
   stage2PassResults.forEach((spot) => {
     const name = spot.spot_name;
     const distanceKm = getHaversineDistance(
@@ -186,7 +211,97 @@ export function filterAndScoreSpots({
       }
     }
 
-    // 📊 4차 최종 가중치 스코어링 결합부
+    const subCategoryText = spot.category_sub || "";
+    const isBothBoth =
+      subCategoryText.includes("실내") && subCategoryText.includes("실외");
+    const isPureOutdoor = !isBothBoth && subCategoryText.includes("실외");
+
+    let localTempRaw = 22.0;
+    let weatherScore = 1.0;
+    let rainFactor = 1.0;
+    let tempFactor = 1.0;
+    let targetWeather = null;
+
+    const cacheKey = `${spot.nx}_${spot.ny}`;
+    const townWeather = weatherCacheData ? weatherCacheData[cacheKey] : null;
+
+    if (townWeather) {
+      const weatherArray =
+        typeof townWeather === "string" ? JSON.parse(townWeather) : townWeather;
+
+      if (Array.isArray(weatherArray) && weatherArray.length > 0) {
+        const [depH, depM] = departureTime.split(":").map(Number);
+        const travelDateTime = new Date(targetQueryDate);
+        travelDateTime.setHours(depH, depM, 0, 0);
+
+        targetWeather = weatherArray.reduce((closest, current) => {
+          let currentStr = current["예보시각"]
+            .replace("오전", "")
+            .replace("오후", "")
+            .replace(/\(.*?\)/g, "")
+            .trim();
+          if (currentStr.includes("하루 통합"))
+            currentStr = currentStr.replace("하루 통합", "12:00");
+
+          const parts = currentStr.split(" ");
+          let forecastTime =
+            parts.length === 1
+              ? new Date(`${targetQueryDate} ${parts[0]}`)
+              : new Date(currentStr);
+          if (isNaN(forecastTime.getTime())) return closest;
+
+          const closestTimeStr = closest["예보시각"]
+            .replace("오전", "")
+            .replace("오후", "")
+            .replace(/\(.*?\)/g, "")
+            .replace("하루 통합", "12:00")
+            .trim();
+          const closestTime =
+            closestTimeStr.split(" ").length === 1
+              ? new Date(`${targetQueryDate} ${closestTimeStr}`)
+              : new Date(closestTimeStr);
+
+          return Math.abs(travelDateTime - forecastTime) <
+            Math.abs(travelDateTime - closestTime)
+            ? current
+            : closest;
+        }, weatherArray[0]);
+
+        if (targetWeather) {
+          // 범위형 기온 및 단일 기온 파싱
+          const rawTempStr = String(targetWeather["기온(TMP)"] || "");
+          if (rawTempStr.includes("~")) {
+            const temps = rawTempStr
+              .split("~")
+              .map((t) => parseFloat(t.replace(/[^0-9.-]/g, "")));
+            const avgTemp = (temps[0] + temps[1]) / 2;
+            localTempRaw = !isNaN(avgTemp) ? avgTemp : 22.0;
+          } else {
+            const numericTemp = parseFloat(rawTempStr.replace(/[^0-9.-]/g, ""));
+            localTempRaw = !isNaN(numericTemp) ? numericTemp : 22.0;
+          }
+
+          const ptyValue = String(targetWeather["강수형태(PTY)"] || "0");
+          const hasRealRainOrSnow =
+            ptyValue !== "0" && !ptyValue.includes("없음");
+
+          if (isPureOutdoor) {
+            rainFactor = hasRealRainOrSnow ? 0.7 : 1.0;
+            tempFactor = calculateTemperaturePenalty(travelMonth, localTempRaw);
+          }
+          weatherScore = rainFactor * tempFactor;
+        }
+      }
+    } else {
+      console.warn(
+        `⚠️ 날씨 데이터 매칭 실패 (Fallback 22°C 적용): ${spot.spot_name}`,
+      );
+      localTempRaw = 10;
+      tempFactor = 1.0;
+      weatherScore = 1.0;
+    }
+
+    // 스코어링 연산부
     const spotMids = Array.isArray(spot.category_mid)
       ? spot.category_mid
       : [spot.category_mid].filter(Boolean);
@@ -194,6 +309,8 @@ export function filterAndScoreSpots({
       spotMids.includes(style),
     );
     const preferenceScore = hasStyleMatch ? 1.2 : 0.8;
+
+    const personalBoost = (preferenceWeights?.[spot.category_mid] || 0) * 0.01;
 
     const trendRecord = spot.spot_visitor_trends && spot.spot_visitor_trends[0];
     const congestionRate = trendRecord
@@ -213,58 +330,46 @@ export function filterAndScoreSpots({
       ageScore = parseFloat(regionWeightRow[targetWeightField]);
     }
 
-    let weatherScore = 1.0;
-    const subCategoryText = spot.category_sub || "";
-    const isBothBoth =
-      subCategoryText.includes("실내") && subCategoryText.includes("실외");
-    const isPureIndoor = !isBothBoth && subCategoryText.includes("실내");
-    const isPureOutdoor = !isBothBoth && subCategoryText.includes("실외");
-
-    const townWeather = weatherCacheData
-      ? weatherCacheData[`${spot.county}_${spot.county_district}`]
-      : null;
-    let localTempRaw = 22;
-
-    if (townWeather) {
-      const ptyValue = townWeather["강수형태(PTY)"] || "0";
-      const tempValue = parseFloat(townWeather["기온(TMP)"] || "22");
-      localTempRaw = tempValue;
-
-      let rainFactor = 1.0;
-      let tempFactor = 1.0;
-
-      const hasRealRainOrSnow =
-        ptyValue !== "0" &&
-        !ptyValue.includes("없음") &&
-        (ptyValue.includes("비") ||
-          ptyValue.includes("눈") ||
-          ptyValue.includes("소나기"));
-
-      if (hasRealRainOrSnow) {
-        rainFactor = isPureOutdoor ? 0.7 : 1.0;
-      }
-
-      if (isPureOutdoor) {
-        tempFactor = calculateTemperaturePenalty(travelMonth, tempValue);
-      }
-
-      // 비/눈과 기온이 겹치면 강수 * 기온 공식 결합
-      weatherScore = rainFactor * tempFactor;
-    }
-
     const rawScore =
       congestionScore * preferenceScore * ageScore * weatherScore;
     const maxPossibleScore = 1.0 * 1.2 * 1.2 * 1.0;
-    const finalScorePercent = (rawScore / maxPossibleScore) * 100;
+    const finalScoreClipped = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          (rawScore / maxPossibleScore) * 100 * (1 + personalBoost) * 100,
+        ) / 100,
+      ),
+    );
 
     filteredResults.push({
       ...spot,
       name: spot.spot_name,
       subtitle: spot.spot_description || "낭만 가득한 강원도 추천 플레이스",
-      spotScore: Math.min(100, Math.round(finalScorePercent * 100) / 100),
+      spotScore: finalScoreClipped,
       congestion_rate: congestionRate,
-      weather: townWeather ? townWeather["하늘상태(SKY)"] || "맑음" : "맑음",
+      weather: (() => {
+        if (!townWeather) return "오류";
+        let status = targetWeather["하늘상태(SKY)"]
+          .replace(/\(.*?\)/g, "")
+          .trim();
+        return status.replace(/\s+/g, "");
+      })(),
       temp: localTempRaw,
+      weather_raw: typeof targetWeather !== "undefined" ? targetWeather : null,
+      is_outdoor: isPureOutdoor,
+      weather_final_score: weatherScore,
+      weather_rain_reason:
+        rainFactor === 0.7 ? "강수 감지 ➔ 0.7배" : "강수 없음 ➔ 1.0배",
+      weather_temp_reason:
+        tempFactor === 1.0
+          ? "쾌적 ➔ 1.0배"
+          : tempFactor === 0.9
+            ? "다소 불편 ➔ 0.9배"
+            : tempFactor === 0.8
+              ? "불편 ➔ 0.8배"
+              : "매우 불편/극한 ➔ 0.7/0.6배",
       address: spot.address,
       image: spot.image_url,
       lat: spot.lat,
@@ -281,6 +386,18 @@ export function filterAndScoreSpots({
       distance: realRoadDist.toFixed(1),
       duration: estimatedTime.toFixed(1),
       calculatedTime: estimatedTime * 60,
+      debugLog: {
+        result: {
+          rawMultiplication: rawScore.toFixed(4),
+          maxPossible: maxPossibleScore.toFixed(4),
+        },
+        normalizedScores: {
+          congestion: congestionScore.toFixed(4),
+          preference: preferenceScore.toFixed(4),
+          ageWeight: ageScore.toFixed(4),
+          weatherMatrix: weatherScore.toFixed(4),
+        },
+      },
     });
   });
 
@@ -305,117 +422,80 @@ export function filterAndScoreSpots({
     "%c==================================================",
     "color: #6B5FD8; font-weight: bold; font-size: 13px;",
   );
-  // =======================================================
-  // 🏆 최종 Top 10 가중치 및 날씨 연산 과정 초정밀 로깅 (변수 스코프 완치본)
-  // =======================================================
+
   console.log(
     "%c🏆 대망의 SpotBalance 맞춤형 추천 Top 10 가중치 세부 추적 리포트",
     "color: #2e7d32; font-weight: bold; font-size: 14px;",
   );
 
-  const logTop10 = [...filteredResults]
+  const top10Spots = [...filteredResults]
     .sort((a, b) => b.spotScore - a.spotScore)
     .slice(0, 10);
 
-  logTop10.forEach((candidate, index) => {
-    const spotSource = allSpots.find((s) => s.spot_name === candidate.name);
-    if (!spotSource) return;
+  top10Spots.forEach((candidate, index) => {
+    const log = candidate.debugLog;
+    if (!log) return;
 
-    const spotMids = Array.isArray(spotSource.category_mid)
-      ? spotSource.category_mid
-      : [spotSource.category_mid].filter(Boolean);
-    const hasStyleMatch = selectedStyles.some((style) =>
-      spotMids.includes(style),
+    const spotMids = Array.isArray(candidate.category_mid)
+      ? candidate.category_mid
+      : [candidate.category_mid].filter(Boolean);
+    const midDetail = spotMids
+      .map((mid) => `${mid}:${(preferenceWeights?.[mid] || 0).toFixed(1)}`)
+      .join(", ");
+    const totalActionScore = spotMids.reduce(
+      (acc, mid) => acc + (preferenceWeights?.[mid] || 0),
+      0,
     );
-    const finalPrefWeight = hasStyleMatch ? 1.2 : 0.8;
 
-    const trendRecord =
-      spotSource.spot_visitor_trends && spotSource.spot_visitor_trends[0];
-    const rawCongestion = trendRecord
-      ? parseFloat(trendRecord.visitor_count)
-      : 0;
-    const finalCongWeight = (100 - rawCongestion) / 100;
+    const baseScore100 =
+      (parseFloat(log.result.rawMultiplication) /
+        parseFloat(log.result.maxPossible)) *
+      100;
+    const boostRate = 1 + totalActionScore * 0.01;
 
-    const ageGroupKey =
-      userAgeNum >= 70 ? "age70" : `age${Math.floor(userAgeNum / 10) * 10}`;
-    const targetWeightField = `${ageGroupKey}_weight`;
-    let finalAgeWeight = 1.0;
-    const regionWeightRow = regionAgeWeightsMap
-      ? regionAgeWeightsMap[spotSource.county]
-      : null;
-    if (regionWeightRow && regionWeightRow[targetWeightField] !== undefined) {
-      finalAgeWeight = parseFloat(regionWeightRow[targetWeightField]);
+    console.group(
+      `[Rank ${index + 1}] 명소: ${candidate.name} ➔ 🏆 최종 환산 점수: ${candidate.spotScore}점`,
+    );
+    if (candidate.weather_raw) {
+      console.log(
+        `%c[🔍 매칭된 DB 예보 원본]`,
+        "color: #7e57c2; font-weight: bold;",
+        candidate.weather_raw,
+      );
+    } else {
+      console.log(
+        `%c[❌ DB 예보 매칭 실패]`,
+        "color: #e53935; font-weight: bold;",
+        `주소 불일치로 인해 Fallback 기본값(22.0℃)이 계산에 적용되었습니다.`,
+      );
     }
-
-    // 🌟 [완치 구역] 로그 내부 스코프에 유실되었던 실내/실외 공간 판정 변수 완벽 복원!
-    const subCategoryText = spotSource.category_sub || "";
-    const logIsBothBoth =
-      subCategoryText.includes("실내") && subCategoryText.includes("실외");
-    const logIsPureIndoor = !logIsBothBoth && subCategoryText.includes("실내");
-    const logIsPureOutdoor = !logIsBothBoth && subCategoryText.includes("실외");
-
-    let ptyLog = "0 (없음)",
-      tmpLog = "22.0°C";
-    let seasonLog = "봄·가을 (기준: 19~23℃)";
-    if (travelMonth >= 6 && travelMonth <= 8) seasonLog = "여름 (기준: 25~28℃)";
-    else if (travelMonth === 12 || travelMonth === 1 || travelMonth === 2)
-      seasonLog = "겨울 (기준: 18~20℃)";
-
-    let rainFactorLog = "1.0 (감점 없음)",
-      tempFactorLog = "1.0 (쾌적 구간 1.0)";
-    let weatherCalcProcess = "";
-
-    const townWeather = weatherCacheData
-      ? weatherCacheData[`${spotSource.county}_${spotSource.county_district}`]
-      : null;
-
-    if (townWeather) {
-      const ptyValue = townWeather["강수형태(PTY)"] || "0";
-      const tempValue = parseFloat(townWeather["기온(TMP)"] || "22");
-      ptyLog = ptyValue;
-      tmpLog = `${tempValue.toFixed(1)}°C`;
-
-      const hasRealRainOrSnow =
-        ptyValue !== "0" &&
-        !ptyValue.includes("없음") &&
-        (ptyValue.includes("비") ||
-          ptyValue.includes("눈") ||
-          ptyValue.includes("소나기"));
-
-      if (logIsBothBoth || logIsPureIndoor) {
-        weatherCalcProcess = `↳ 🛡️ [공간 가드]: 실내 및 복합 공간은 패널티 제로! (일괄 1.0)`;
-      } else if (logIsPureOutdoor) {
-        if (hasRealRainOrSnow) rainFactorLog = "0.7 (🌧️ 강수 패널티 타격)";
-        const finalT = calculateTemperaturePenalty(travelMonth, tempValue);
-
-        let levelText = "쾌적 구간";
-        if (finalT === 0.6) levelText = "🚨 극한 기온(폭염/한파)";
-        else if (finalT === 0.7) levelText = "매우 불편(±6℃ 초과)";
-        else if (finalT === 0.8) levelText = "불편(±6℃ 이내)";
-        else if (finalT === 0.9) levelText = "다소 불편(±3℃ 이내)";
-
-        tempFactorLog = `${finalT.toFixed(1)} (${levelText} | 계측: ${tempValue}℃)`;
-        weatherCalcProcess = `↳ 🌧️ 강수: ${rainFactorLog} | 🌡️ 기온: ${tempFactorLog}\n      ↳ 🧮 날씨 최종 수식: [강수] ${hasRealRainOrSnow ? "0.7" : "1.0"} × [기온] ${finalT.toFixed(1)} = ${(hasRealRainOrSnow ? 0.7 * finalT : 1.0 * finalT).toFixed(2)}`;
-      }
-    }
-
     console.log(
-      `%c[Rank ${index + 1}] 명소: ${candidate.name} ➔ 🏆 최종 환산 점수: ${candidate.spotScore}점\n` +
-        `   📝 [1단계 필터 메타]: 분류 [${spotSource.category_main} > ${subCategoryText}]\n` +
-        `   🧩 [4차 취향 가중치]: ${finalPrefWeight === 1.2 ? "🟢 1.2 (유저 선호 해시태그 일치 버프)" : "🔴 0.8 (선호 비일치 감점)"}\n` +
-        `   🚗 [4차 혼잡 가중치]: 데이터랩 지수 ${rawCongestion.toFixed(2)}% ➔ x${finalCongWeight.toFixed(4)}\n` +
-        `   👥 [4차 연령 가중치]: 지역 [${spotSource.county}] ➔ x${finalAgeWeight.toFixed(3)}\n` +
-        `   🌤️ [4차 날씨 신규 5단계 구간 연산 과정]\n` +
-        `      ├─ 기상청 동네예보 ➔ [강수 형태]: ${ptyLog} | [현재 기온]: ${tmpLog} | [계절]: ${seasonLog}\n` +
-        `      ${weatherCalcProcess}\n` +
-        `   🧮 최종 수식 검증 스펙 ➔ (혼잡: ${finalCongWeight.toFixed(3)} × 취향: ${finalPrefWeight} × 연령: ${finalAgeWeight.toFixed(2)} × 날씨: ${(candidate.spotScore ? (candidate.spotScore * 1.44) / 100 / (finalCongWeight * finalPrefWeight * finalAgeWeight) : 1.0).toFixed(2)}) / 1.44 × 100 = ${candidate.spotScore}점`,
-      "color: #1b5e20; line-height: 1.6;",
+      `%c[A. 기상 분석]`,
+      "color: #039be5; font-weight: bold;",
+      `${candidate.is_outdoor ? "실외" : "실내"} | 현지 기온: ${candidate.temp.toFixed(1)}℃ | 최종 날씨 계수: ${candidate.weather_final_score.toFixed(4)}`,
     );
+    console.log(
+      `%c[B. 기온 상세 사유]`,
+      "color: #039be5;",
+      `기온분석: ${candidate.temp.toFixed(1)}℃는 ${candidate.weather_temp_reason}`,
+    );
+    console.log(
+      `%c[C. 기초 점수 산출]`,
+      "color: #f57c00; font-weight: bold;",
+      `((혼잡:${log.normalizedScores.congestion} × 취향:${log.normalizedScores.preference} × 연령:${log.normalizedScores.ageWeight} × 날씨:${log.normalizedScores.weatherMatrix}) / ${parseFloat(log.result.maxPossible).toFixed(3)}) × 100 ➔ ${baseScore100.toFixed(2)}점`,
+    );
+    console.log(
+      `%c[D. 개인화 부스트]`,
+      "color: #9c27b0; font-weight: bold;",
+      `매칭 중분류[${midDetail}] ➔ 총점:${totalActionScore.toFixed(1)}점 ➔ 부스트율:+${(totalActionScore * 0.02 * 100).toFixed(1)}%`,
+    );
+    console.log(
+      `%c[E. 최종 결합식]`,
+      "color: #2ca02c; font-weight: bold;",
+      `기초(${baseScore100.toFixed(2)}점) × 보너스(${boostRate.toFixed(3)}배) ➔ ${candidate.spotScore}점`,
+    );
+    console.groupEnd();
   });
-  console.log(
-    "%c==================================================",
-    "color: #6B5FD8; font-weight: bold; font-size: 13px;",
-  );
 
   return filteredResults;
 }

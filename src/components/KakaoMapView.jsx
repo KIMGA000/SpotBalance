@@ -6,7 +6,6 @@ export const KakaoMapView = ({ startOrigin, targetSpot, routeLinePath }) => {
   const polylineRef = useRef(null);
   const markersRef = useRef([]);
 
-  // 🌟 [유령 타일 현상 종결자] DOM 상자가 진짜 화면에 렌더링되는 시점을 감시하는 콜백 레프
   const mapContainerCallback = (node) => {
     if (node !== null) {
       mapContainerRef.current = node;
@@ -28,7 +27,7 @@ export const KakaoMapView = ({ startOrigin, targetSpot, routeLinePath }) => {
         mapRef.current = new window.kakao.maps.Map(node, options);
       }
 
-      // 2. 상자가 열린 순간 카카오 맵 타일 강제 동기화 리사이징!
+      // 2. 상자가 열린 순간 카카오 맵 타일 강제 동기화 리사이징
       const map = mapRef.current;
       map.relayout();
 
@@ -113,7 +112,7 @@ export const KakaoMapView = ({ startOrigin, targetSpot, routeLinePath }) => {
       polylineRef.current = polyline;
     }
 
-    // 🎯 [Auto Bounds] 출발지와 1위 목적지를 감싸는 최적의 줌 배율 정렬 보정
+    // 출발지와 1위 목적지를 감싸는 최적의 줌 배율 정렬 보정
     setTimeout(() => {
       map.relayout();
       const bounds = new window.kakao.maps.LatLngBounds();
@@ -125,7 +124,7 @@ export const KakaoMapView = ({ startOrigin, targetSpot, routeLinePath }) => {
 
   return (
     <div
-      ref={mapContainerCallback} // 🌟 일반 ref 대신 런타임 콜백 레프로 교체하여 0px 버그 원천 봉쇄
+      ref={mapContainerCallback}
       className="w-full h-full relative"
       style={{ minHeight: "100%", height: "100%", minWidth: "100%" }}
     />

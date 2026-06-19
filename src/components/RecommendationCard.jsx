@@ -14,6 +14,7 @@ import {
   Clock,
   Calendar,
 } from "lucide-react";
+import { recordUserAction } from "../utils/logger";
 
 export const RecommendationCard = ({
   name,
@@ -42,10 +43,11 @@ export const RecommendationCard = ({
   rest_weekly_days,
   is_always_open,
   is_no_holiday,
+  age,
+  gender,
   ...rest
 }) => {
   const getRestDaysText = (days) => {
-    // DB에서 데이터가 어떻게 넘어오는지 확인 필요 (로그 확인했던 것)
     if (!days || days.length === 0) return "연중무휴";
 
     // 만약 days가 배열이 아니라면(문자열 등), 그대로 반환
@@ -68,12 +70,12 @@ export const RecommendationCard = ({
   const displayCongestion = congestion_rate !== undefined ? congestion_rate : 0;
   const displayFinalScore = spotScore !== undefined ? Math.round(spotScore) : 0;
 
-  // 📅 "2026. 06. 12 (금)" 에서 요일 괄호를 제거하고 날짜만 안전하게 추출
+  // "2026. 06. 12 (금)" 에서 요일 괄호를 제거하고 날짜만 안전하게 추출
   const displayPureDate = travelDate
     ? travelDate.replace(/\s*\([^)]*\)/g, "").trim()
     : "";
 
-  // 🌤️ 기상청 코드 "맑음(1)" 이나 "흐림(4)" 에서 숫자 코드를 잘라내고 한국어만 추출
+  // 기상청 코드 "맑음(1)" 이나 "흐림(4)" 에서 숫자 코드를 잘라내고 한국어만 추출
   const pureWeatherText = weather
     ? weather.replace(/\(\d+\)/g, "").trim()
     : "맑음";
@@ -120,34 +122,63 @@ export const RecommendationCard = ({
     ]),
   ).filter(Boolean);
 
-  // 👍 좋아요 클릭 (부모 카드 열기 이벤트 전파 방지)
+  const getCommonSpotData = () => ({
+    id: rest.id,
+    category_main: formatCategory(category_main),
+    category_mid: formatCategory(category_mid),
+    category_sub: formatCategory(category_sub),
+    spotScore: spotScore, // 최종 점수
+    rank: rank, // 추천 순위
+    travelDate: travelDate, // 여행 날짜
+  });
+
   const handleLike = (e) => {
     e.stopPropagation();
-    setFeedback(feedback === "like" ? null : "like");
-  };
+    const isCurrentlyLiked = feedback === "like";
+    const newFeedback = isCurrentlyLiked ? null : "like";
+    setFeedback(newFeedback);
 
-  // 👎 싫어요 클릭 (부모 카드 열기 이벤트 전파 방지)
+    const action = isCurrentlyLiked ? "like_cancel" : "like";
+
+    recordUserAction(getCommonSpotData(), action, { age, gender });
+  };
   const handleDislike = (e) => {
     e.stopPropagation();
-    setFeedback(feedback === "dislike" ? null : "dislike");
+    const isCurrentlyDisliked = feedback === "dislike";
+    const newFeedback = isCurrentlyDisliked ? null : "dislike";
+    setFeedback(newFeedback);
+
+    const action = isCurrentlyDisliked ? "dislike_cancel" : "dislike";
+
+    recordUserAction(getCommonSpotData(), action, { age, gender });
   };
 
   const openNaverMap = () => {
+    recordUserAction(getCommonSpotData(), "route_search", { age, gender });
+
     const startName = encodeURIComponent(startOrigin?.name || "출발지");
     const url = `https://map.naver.com/index.nhn?slng=${startOrigin?.lng}&slat=${startOrigin?.lat}&stext=${startName}&elng=${lng}&elat=${lat}&etext=${encodeURIComponent(name)}&menu=route&pathType=0`;
     window.open(url, "_blank");
   };
 
   const openNaverReview = () => {
-    // 플레이스 ID가 없더라도 위경도(`lng`, `lat`)와 인코딩된 `명소 명칭`이 결합되면 네이버 검색 허브가 매칭되는 리뷰 탭을 정확하게 띄워줍니다.
-    const searchName = encodeURIComponent(name);
+    recordUserAction(getCommonSpotData(), "review_view", { age, gender });
+    const cleanName = name.replace(/\(.*?\)/g, "").trim();
+
+    const searchName = encodeURIComponent(cleanName);
     const url = `https://map.naver.com/p/search/${searchName}?lng=${lng}&lat=${lat}&placePath=%2Freview&searchType=place&entry=plt&c=15.00,0,0,0,dh`;
     window.open(url, "_blank");
   };
+  const handleModalOpen = () => {
+    setIsModalOpen(true);
 
+    setTimeout(() => {
+      recordUserAction(getCommonSpotData(), "detail_view", { age, gender });
+    }, 1000);
+  };
   const getCongestionColor = (rate) => {
     if (rate <= 30) return "text-emerald-500"; // 여유 (Green)
-    if (rate <= 60) return "text-blue-500"; // 보통 (Blue - 변경!)
+    if (rate <= 60) return "text-blue-500"; // 보통 (Blue)
     return "text-red-500"; // 혼잡 (Red)
   };
 
@@ -159,7 +190,6 @@ export const RecommendationCard = ({
   };
 
   const getRecommendationReason = () => {
-    // 1. 분류 (대분류/중분류 추출)
     const mainCat = Array.isArray(category_main)
       ? category_main.join("/")
       : category_main || "여행";
@@ -167,15 +197,12 @@ export const RecommendationCard = ({
       ? category_mid.join("/")
       : category_mid || "테마";
 
-    // 2. 🌟 핵심 매칭 로직: allTags(관광지의 태그들)와 selectedStyles(유저의 취향들)의 교집합 확인
-    // some()을 사용해 유저의 취향 중 하나라도 관광지의 태그에 포함되어 있는지 확인합니다.
     const isMatch = selectedStyles.some((style) => allTags.includes(style));
 
     const themePart = isMatch
       ? `${mainCat}의 ${midCat} 테마에 아주 잘 맞으며`
       : `${mainCat}의 ${midCat} 테마지만`;
 
-    // 3. 날씨 (이모티콘 매칭)
     const weatherEmoji = pureWeatherText.includes("맑음")
       ? "☀️"
       : pureWeatherText.includes("흐림")
@@ -183,7 +210,6 @@ export const RecommendationCard = ({
         : "🌤️";
     const weatherPart = `오늘 날씨가 ${pureWeatherText}(${weatherEmoji})이고`;
 
-    // 혼잡도 색상 및 라벨 가져오기
     const congestionColor = getCongestionColor(displayCongestion);
     const congestionLabel = getCongestionLabel(displayCongestion);
 
@@ -197,20 +223,17 @@ export const RecommendationCard = ({
           {displayCongestion}%
         </span>
         {congestionLabel === "여유"
-          ? "로 매우 여유로워 힐링하기 딱 좋아요"
+          ? "로 매우 여유로워 여행하기 딱 좋아요."
           : congestionLabel === "보통"
-            ? "로 적당해서 둘러보기 좋은 시기예요"
-            : "로 조금 붐비지만, 그만큼 매력 있는 곳이에요"}
-        입니다.
+            ? "로 적당해서 둘러보기 좋아요."
+            : "로 조금 붐비지만, 그만큼 매력 있는 곳이에요."}
       </>
     );
   };
 
   return (
     <>
-      {/* ==================================================== */}
       {/* 1. 메인 결과 화면 노출용 전면 카드 유닛 */}
-      {/* ==================================================== */}
       <div
         className="bg-white/55 backdrop-blur-md border border-white/60 p-5 md:p-6 rounded-[24px] shadow-xl flex flex-col hover:bg-white/70 transition-all duration-300 cursor-pointer transform active:scale-[0.99]"
         onClick={() => {
@@ -223,7 +246,7 @@ export const RecommendationCard = ({
               {rank}
             </div>
             <div>
-              <h3 className="text-2xl sb-font-h text-[#2D2A4A] mb-1 leading-tight tracking-tight font-black">
+              <h3 className="text-2xl sb-font-h text-[#2D2A4A] mb-1 leading-tight tracking-tight font-black truncate max-w-[200px] md:max-w-[300px]">
                 {name}
               </h3>
               <p className="text-[#6B5FD8] sb-font-h text-sm tracking-tight opacity-90 font-bold">
@@ -245,7 +268,7 @@ export const RecommendationCard = ({
 
             <div className="text-center min-w-[90px]">
               <div className="text-[10px] text-[#8884A8] font-bold whitespace-nowrap uppercase tracking-widest mb-1.5">
-                실시간 날씨
+                날씨
               </div>
               <div className="flex items-center gap-1.5 justify-center bg-gray-50/80 px-2.5 py-1.5 rounded-xl border border-gray-100/50">
                 <div className="shrink-0 animate-pulse">
@@ -255,7 +278,9 @@ export const RecommendationCard = ({
                   {pureWeatherText}
                 </span>
                 <span className="text-sm font-black text-[#6B5FD8]">
-                  {temp ? `${Math.round(temp)}°C` : "22°C"}
+                  {temp !== null && temp !== undefined
+                    ? `${Math.round(temp)}°C`
+                    : "정보없음"}
                 </span>
               </div>
             </div>
@@ -308,9 +333,7 @@ export const RecommendationCard = ({
         </div>
       </div>
 
-      {/* ==================================================== */}
       {/* 2. 브라우저용 반응형 상세 모달 창 */}
-      {/* ==================================================== */}
       {isModalOpen && (
         <div
           className="fixed inset-0 bg-[#2D2A4A]/20 backdrop-blur-[4px] z-[1000] flex items-center justify-center p-4 animate-in fade-in duration-300"
@@ -416,7 +439,7 @@ export const RecommendationCard = ({
                   </div>
                   <div className="text-[13px] sb-font-h text-[#2D2A4A] leading-tight font-black truncate">
                     {is_always_open
-                      ? "24시간 상시 개방"
+                      ? "상시 개방"
                       : open_time && close_time
                         ? `${open_time.substring(0, 5)} ~ ${close_time.substring(0, 5)}`
                         : "운영 시간 정보 없음"}
@@ -441,7 +464,6 @@ export const RecommendationCard = ({
                 </div>
               </div>
 
-              {/* 🌟 [명세 변경 반영 완료] 카카오 네비 연계 버튼을 '네이버 리뷰보기' 서비스로 리포지셔닝 */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                 <button
                   onClick={openNaverMap}
