@@ -161,7 +161,7 @@ export async function filterAndScoreSpots({
           Number(spot.lat),
           Number(spot.lng),
         );
-        const realRoadDist = distanceKm * 1.3;
+        const realRoadDist = distanceKm * 1.6;
         const durationMinutes = Math.round((realRoadDist / currentSpeed) * 60);
         const arrivalMinutes = depH * 60 + depM + durationMinutes;
 
@@ -194,7 +194,7 @@ export async function filterAndScoreSpots({
       Number(spot.lat),
       Number(spot.lng),
     );
-    const realRoadDist = distanceKm * 1.3;
+    const realRoadDist = distanceKm * 1.6;
     const estimatedTime = realRoadDist / currentSpeed;
 
     if (!isShortageFallbackActive) {
