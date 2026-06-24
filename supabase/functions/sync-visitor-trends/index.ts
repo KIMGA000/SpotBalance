@@ -1,5 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "http/server";
+import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -23,7 +23,7 @@ serve(async (_req) => {
 
     const { data: spots } = await supabase.from("spots").select(
       "id, content_id, spot_name, sigungu_code",
-    );
+    ).limit(10);
 
     for (const spot of spots || []) {
       if (!spot.content_id || !spot.sigungu_code) continue;
@@ -32,9 +32,10 @@ serve(async (_req) => {
         `https://apis.data.go.kr/B551011/TatsCnctrRateService/tatsCnctrRatedList`;
       const params = new URLSearchParams({
         serviceKey: DATA_GO_KR_KEY,
+        pageNo: "1",
         numOfRows: "30",
         MobileOS: "WEB",
-        MobileApp: "TR",
+        MobileApp: "SPOTBALANCE",
         areaCd: "51",
         signguCd: String(spot.sigungu_code),
         tAtsNm: spot.spot_name,
@@ -43,7 +44,13 @@ serve(async (_req) => {
 
       const res = await fetch(`${apiUrl}?${params}`);
       const json = await res.json();
-
+      if (json.response?.header?.resultCode !== "0000") {
+        console.warn(
+          `API 호출 실패(${spot.spot_name}):`,
+          json.response?.header?.resultMsg,
+        );
+        continue; // 다음 장소로 바로 건너뜁니다.
+      }
       // 2. `any` 대신 `unknown` 사용 후 타입 가드 적용
       const items = json.response?.body?.items?.item;
       const itemList = Array.isArray(items) ? items : items ? [items] : [];

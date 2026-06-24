@@ -16,37 +16,41 @@ import {
 } from "lucide-react";
 import { recordUserAction } from "../utils/logger";
 
-export const RecommendationCard = ({
-  name,
-  subtitle,
-  rank,
-  address,
-  weather,
-  image,
-  category_main,
-  category_mid,
-  category_sub,
-  startOrigin,
-  travelDate,
-  departureTime,
-  lat,
-  lng,
-  congestion_rate,
-  spotScore,
-  kakaoDist,
-  kakaoTime,
-  onCardClick,
-  temp,
-  selectedStyles,
-  open_time,
-  close_time,
-  rest_weekly_days,
-  is_always_open,
-  is_no_holiday,
-  age,
-  gender,
-  ...rest
-}) => {
+export const RecommendationCard = (props) => {
+  // 💡 props 전체를 받아서
+  const {
+    name,
+    subtitle,
+    rank,
+    address,
+    weather,
+    image,
+    category_main,
+    category_mid,
+    category_sub,
+    startOrigin,
+    travelDate,
+    departureTime,
+    lat,
+    lng,
+    congestion_rate,
+    spotScore,
+    kakaoDist,
+    kakaoTime,
+    onCardClick,
+    temp,
+    selectedStyles,
+    open_time,
+    close_time,
+    rest_weekly_days,
+    is_always_open,
+    is_no_holiday,
+    age,
+    gender,
+    recSessionId,
+    ...rest
+  } = props;
+
   const getRestDaysText = (days) => {
     if (!days || days.length === 0) return "연중무휴";
 
@@ -129,7 +133,8 @@ export const RecommendationCard = ({
     category_sub: formatCategory(category_sub),
     spotScore: spotScore, // 최종 점수
     rank: rank, // 추천 순위
-    travelDate: travelDate, // 여행 날짜
+    travelDate: travelDate, // 여행 날짜,
+    rec_session_id: recSessionId,
   });
 
   const handleLike = (e) => {
@@ -165,7 +170,12 @@ export const RecommendationCard = ({
     recordUserAction(getCommonSpotData(), "review_view", { age, gender });
     const cleanName = name.replace(/\(.*?\)/g, "").trim();
 
-    const searchName = encodeURIComponent(cleanName);
+    let searchName = encodeURIComponent(cleanName);
+
+    if (cleanName === "소도둑놈산촌생태마을") {
+      searchName = encodeURIComponent("소도둑놈마을");
+    }
+
     const url = `https://map.naver.com/p/search/${searchName}?lng=${lng}&lat=${lat}&placePath=%2Freview&searchType=place&entry=plt&c=15.00,0,0,0,dh`;
     window.open(url, "_blank");
   };

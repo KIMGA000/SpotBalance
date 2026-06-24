@@ -98,7 +98,7 @@ function App() {
   const [recommendations, setRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [kakaoRoutesMaster, setKakaoRoutesMaster] = useState({});
-
+  const [recSessionId, setRecSessionId] = useState(null);
   const [gangwonWeather, setGangwonWeather] = useState({
     text: "맑음",
     temp: 0,
@@ -211,7 +211,7 @@ function App() {
       const destCoords = `${spot.lng},${spot.lat}`;
       try {
         const response = await fetch(
-          `https://apis-navi.kakaomobility.com/v1/directions?origin=${originCoords}&destination=${destCoords}&priority=RECOMMEND`,
+          `https://apis-navi.kakaomobility.com/v1/directions?origin=${originCoords}&destination=${destCoords}&priority=TIME`,
           {
             method: "GET",
             headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
@@ -325,6 +325,41 @@ function App() {
     try {
       const userId = getOrCreateUserId();
 
+      const targetMainLabels = [];
+      Object.keys(TASTE_DATA_CONFIG).forEach((mainKey) => {
+        if (
+          selectedStyles.some((style) =>
+            TASTE_DATA_CONFIG[mainKey].includes(style),
+          )
+        ) {
+          targetMainLabels.push(MAIN_LABEL_MAP[mainKey]);
+        }
+      });
+
+      // [검색 조건 저장]
+      const { data: searchLog, error: searchError } = await supabase
+        .from("search_conditions")
+        .insert({
+          user_id: userId,
+          origin_name: selectedOrigin.name,
+          origin_lat: selectedOrigin.lat,
+          origin_lng: selectedOrigin.lng,
+          travel_date: targetQueryDate,
+          departure_time: departureTime,
+          travel_time_limit: travelTime,
+          gender: gender,
+          age_num: parseInt(age.replace(/[^0-9]/g, "")) || 20,
+          preferred_main_categories: targetMainLabels, // 위에서 계산된 값
+          preferred_mid_categories: selectedStyles,
+        })
+        .select("id")
+        .single();
+
+      if (searchError) throw searchError;
+
+      // 발급받은 세션 ID를 상단 state에 저장
+      setRecSessionId(searchLog.id);
+
       // 1. 필요한 모든 데이터를 한 번씩 호출
       const [
         preferenceWeights,
@@ -355,24 +390,12 @@ function App() {
       // 2. 데이터 가공 (맵핑)
       const weatherMap = {};
       weatherCache?.forEach((item) => {
-        weatherMap[`${item.nx}_${item.ny}`] =
-          item.weather_data || null;
+        weatherMap[`${item.nx}_${item.ny}`] = item.weather_data || null;
       });
 
       const ageWeightMap = {};
       ageWeightsData?.forEach((row) => {
         ageWeightMap[row.signgu_name] = row;
-      });
-
-      const targetMainLabels = [];
-      Object.keys(TASTE_DATA_CONFIG).forEach((mainKey) => {
-        if (
-          selectedStyles.some((style) =>
-            TASTE_DATA_CONFIG[mainKey].includes(style),
-          )
-        ) {
-          targetMainLabels.push(MAIN_LABEL_MAP[mainKey]);
-        }
       });
 
       // 3. 알고리즘 엔진 호출 (순수 데이터만 전달)
@@ -408,6 +431,8 @@ function App() {
 
       const logEntries = finalSorted.map((spot, index) => ({
         spot_id: String(spot.id),
+        user_id: userId,
+        rec_session_id: searchLog.id,
         age_group: age,
         gender: gender,
         recommended_rank: index + 1,
@@ -636,6 +661,7 @@ function App() {
                 selectedStyles={selectedStyles}
                 age={age}
                 gender={gender}
+                recSessionId={recSessionId}
                 onCardClick={() => setSelectedPlaceIndex(index)}
               />
             ))}

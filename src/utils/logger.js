@@ -12,7 +12,12 @@ const actionWeights = {
   dislike_cancel: 3,
 };
 
-export const recordUserAction = async (spot, actionType, userProfile = {}) => {
+export const recordUserAction = async (
+  spot,
+  actionType,
+  userProfile = {},
+  recSessionId,
+) => {
   const userId = getOrCreateUserId();
   const cleanDate = spot.travelDate
     ? spot.travelDate
@@ -24,6 +29,7 @@ export const recordUserAction = async (spot, actionType, userProfile = {}) => {
   const { error } = await supabase.from("user_action_logs").insert([
     {
       user_id: userId,
+      rec_session_id: spot.rec_session_id,
       spot_id: spot.id,
       action_type: actionType,
       interaction_weight: actionWeights[actionType] || 0,

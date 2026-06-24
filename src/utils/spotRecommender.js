@@ -161,7 +161,7 @@ export async function filterAndScoreSpots({
           Number(spot.lat),
           Number(spot.lng),
         );
-        const realRoadDist = distanceKm * 1.6;
+        const realRoadDist = distanceKm * 1.5;
         const durationMinutes = Math.round((realRoadDist / currentSpeed) * 60);
         const arrivalMinutes = depH * 60 + depM + durationMinutes;
 
@@ -194,7 +194,7 @@ export async function filterAndScoreSpots({
       Number(spot.lat),
       Number(spot.lng),
     );
-    const realRoadDist = distanceKm * 1.6;
+    const realRoadDist = distanceKm * 1.5;
     const estimatedTime = realRoadDist / currentSpeed;
 
     if (!isShortageFallbackActive) {
@@ -485,9 +485,9 @@ export async function filterAndScoreSpots({
       `((혼잡:${log.normalizedScores.congestion} × 취향:${log.normalizedScores.preference} × 연령:${log.normalizedScores.ageWeight} × 날씨:${log.normalizedScores.weatherMatrix}) / ${parseFloat(log.result.maxPossible).toFixed(3)}) × 100 ➔ ${baseScore100.toFixed(2)}점`,
     );
     console.log(
-      `%c[D. 개인화 부스트]`,
+      `%c[D. 개인화]`,
       "color: #9c27b0; font-weight: bold;",
-      `매칭 중분류[${midDetail}] ➔ 총점:${totalActionScore.toFixed(1)}점 ➔ 부스트율:+${(totalActionScore * 0.02 * 100).toFixed(1)}%`,
+      `매칭 중분류[${midDetail}] ➔ 총점:${totalActionScore.toFixed(1)}점 ➔ 부스트율:+${(totalActionScore * 0.01 * 100).toFixed(1)}%`,
     );
     console.log(
       `%c[E. 최종 결합식]`,
