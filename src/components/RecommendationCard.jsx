@@ -174,6 +174,10 @@ export const RecommendationCard = (props) => {
 
     if (cleanName === "소도둑놈산촌생태마을") {
       searchName = encodeURIComponent("소도둑놈마을");
+    } else if (cleanName === "주문진읍 BTS 앨범사진 촬영지") {
+      searchName = encodeURIComponent("BTS 버스정류장");
+    } else if (cleanName === "매봉산풍력발전단지") {
+      searchName = encodeURIComponent("태백시고냉지배추단지");
     }
 
     const url = `https://map.naver.com/p/search/${searchName}?lng=${lng}&lat=${lat}&placePath=%2Freview&searchType=place&entry=plt&c=15.00,0,0,0,dh`;
@@ -400,13 +404,13 @@ export const RecommendationCard = (props) => {
               </div>
               <div className="text-xs bg-[#6B5FD8]/5 p-3.5 rounded-xl border border-[#6B5FD8]/10 flex justify-between font-black text-[#2D2A4A]">
                 <span className="flex items-center gap-1">
-                  🚘 실시간 예상 소요시간:{" "}
+                  🚘 카카오맵 예상 소요시간:{" "}
                   <span className="text-[#6B5FD8] text-sm font-black">
                     {kakaoTime ? `${kakaoTime}분` : "계산 중..."}
                   </span>
                 </span>
                 <span className="flex items-center gap-1">
-                  🛣️ 도로 거리:{" "}
+                  🛣️ 카카오맵 예상 실도로 거리:{" "}
                   <span className="text-emerald-600 text-sm font-black">
                     {kakaoDist ? `${kakaoDist}km` : "계산 중..."}
                   </span>
