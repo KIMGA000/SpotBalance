@@ -30,9 +30,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { county, district, userTargetDate, isBatchTrigger } = body;
 
-    // =======================================================
     // 🔄 [모드 1] 매일 아침 06:10 크론 배치 모드 (병렬 초고속 리필)
-    // =======================================================
     if (isBatchTrigger === true) {
       console.log("⏰ [Supabase Cron] spots에서 고유 읍면동 좌표 추출 중...");
 
@@ -63,56 +61,96 @@ serve(async (req) => {
         `📡 초고속 병렬 다운로드 시작 (대상 격자 수: ${uniqueGrids.length}개)...`,
       );
 
-      // 1. 🌟 Promise.all을 이용해 기상청 API를 동시에 찔러 2초만에 데이터 수집!
+      // 1. 🌟 20개씩 쪼개서 실행하는 배치 처리 로직으로 교체
+      const BATCH_SIZE = 20;
       const gridWeatherMap = new Map<string, WeatherItem[]>();
-      const promises = uniqueGrids.map(async (grid) => {
-        try {
-          const freshShortData = await fetchShortTermFromKma(grid.nx, grid.ny);
-          if (freshShortData && freshShortData.length > 0) {
-            gridWeatherMap.set(`${grid.nx}_${grid.ny}`, freshShortData);
-          }
-        } catch (e) {
-          console.error(`격자 에러 스킵: ${grid.nx}, ${grid.ny}`, e);
-        }
-      });
-      await Promise.all(promises);
 
-      // 2. 레코드 결합
-      const upsertRecords = [];
-      for (const town of uniqueTowns) {
-        const shortData = gridWeatherMap.get(`${town.nx}_${town.ny}`) || [];
-        if (shortData.length === 0) continue; // 데이터 없는 동네는 패스
-
-        try {
-          const regLand = ["강릉", "동해", "삼척", "속초", "양양"].some((p) =>
-              town.county.includes(p)
-            )
-            ? "11D20000"
-            : "11D10000";
-          const midData = await fetchLiveMidTermOnly(regLand, "11D20401");
-
-          upsertRecords.push({
-            county: town.county,
-            county_district: town.county_district,
-            nx: town.nx,
-            ny: town.ny,
-            weather_data: [...shortData, ...midData],
-            updated_at: new Date().toISOString(),
-          });
-        } catch (midErr) {
-          console.error("중기 에러 스킵:", midErr);
-        }
-      }
-
-      // 3. DB 적재
-      if (upsertRecords.length > 0) {
+      for (let i = 0; i < uniqueGrids.length; i += BATCH_SIZE) {
+        const batch = uniqueGrids.slice(i, i + BATCH_SIZE);
         console.log(
-          `💾 최종 ${upsertRecords.length}개의 읍면동 캐시 DB 적재 가동!`,
+          `📡 배치 처리 중: ${i + 1} ~ ${
+            Math.min(i + BATCH_SIZE, uniqueGrids.length)
+          }개`,
         );
-        const { error: upsertError } = await supabaseClient.from(
-          "weather_town_cache",
-        ).upsert(upsertRecords);
-        if (upsertError) throw upsertError;
+
+        // 배치만큼만 병렬로 호출
+        await Promise.all(batch.map(async (grid) => {
+          try {
+            const freshShortData = await fetchShortTermFromKma(
+              grid.nx,
+              grid.ny,
+            );
+            if (freshShortData && freshShortData.length > 0) {
+              gridWeatherMap.set(`${grid.nx}_${grid.ny}`, freshShortData);
+            }
+          } catch (e) {
+            console.error(`격자 에러 스킵: ${grid.nx}, ${grid.ny}`, e);
+          }
+        }));
+      }
+      console.log("✅ 모든 배치 작업 완료!");
+      console.log("📡 데이터 수집 완료, 이제 DB 적재 시작...");
+      const REGION_CODE_MAP: Record<string, string> = {
+        "철원": "11D10101",
+        "화천": "11D10102",
+        "인제": "11D10201",
+        "양구": "11D10202",
+        "춘천": "11D10301",
+        "홍천": "11D10302",
+        "원주": "11D10401",
+        "횡성": "11D10402",
+        "영월": "11D10501",
+        "정선": "11D10502",
+        "평창": "11D10503",
+        "대관령": "11D20201",
+        "태백": "11D20301",
+        "속초": "11D20401",
+        "고성": "11D20402",
+        "양양": "11D20403",
+        "강릉": "11D20501",
+        "동해": "11D20601",
+        "삼척": "11D20602",
+      };
+      // 2. 레코드 결합 및 적재 준비
+      const upsertRecords = [];
+      const midTermCache = new Map<string, WeatherItem[]>(); // 중기 예보를 캐싱합니다.
+
+      for (const town of uniqueTowns) {
+        const shortData = gridWeatherMap.get(`${town.nx}_${town.ny}`);
+        if (!shortData || shortData.length === 0) continue;
+
+        const cleanCounty = town.county.replace(/[시군]$/, "");
+        const regLand = REGION_CODE_MAP[cleanCounty] || "11D10000";
+
+        // 이미 가져온 지역 코드라면 API를 또 찌르지 않습니다!
+        let midData: WeatherItem[] = midTermCache.get(regLand) || [];
+
+        if (midData.length === 0) {
+          try {
+            midData = await fetchLiveMidTermOnly(regLand, "11D20401");
+            midTermCache.set(regLand, midData); // 결과 저장
+          } catch (e) {
+            console.error(`중기 호출 실패 (${regLand}):`, e);
+          }
+        }
+
+        upsertRecords.push({
+          county: town.county,
+          county_district: town.county_district,
+          nx: town.nx,
+          ny: town.ny,
+          weather_data: [...shortData, ...midData],
+          updated_at: new Date().toISOString(),
+        });
+      }
+      // 3. DB 적재 (루프 밖으로 나옴 확인 완료)
+      if (upsertRecords.length > 0) {
+        console.log(`💾 최종 ${upsertRecords.length}개 DB 적재!`);
+        // 여기서 upsert 실행
+        const { error } = await supabaseClient.from("weather_town_cache")
+          .upsert(upsertRecords);
+        if (error) console.error("❌ DB 에러:", error);
+        else console.log("✅ DB 적재 성공!");
       }
 
       return new Response(
@@ -123,9 +161,7 @@ serve(async (req) => {
       );
     }
 
-    // =======================================================
     // 🔮 [모드 2] 유저 실시간 관광지 추천 가드 모드 (기존 동일)
-    // =======================================================
     const { data: cache } = await supabaseClient.from("weather_town_cache")
       .select("*").eq("county", county).eq("county_district", district)
       .single();

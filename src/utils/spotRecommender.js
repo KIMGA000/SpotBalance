@@ -88,6 +88,32 @@ function calculateTemperaturePenalty(month, tempValue) {
   return 0.7;
 }
 
+export function findBestWeather(weatherArray, arrivalDateTime) {
+  return weatherArray.reduce((closest, current) => {
+    // 1. 날씨 데이터 예보시각 파싱
+    const forecastTime = parseWeatherDate(current["예보시각"]);
+
+    // 2. 시간 차이 계산
+    const diff = Math.abs(arrivalDateTime.getTime() - forecastTime.getTime());
+    const closestDiff = Math.abs(
+      arrivalDateTime.getTime() -
+        parseWeatherDate(closest["예보시각"]).getTime(),
+    );
+
+    return diff < closestDiff ? current : closest;
+  }, weatherArray[0]);
+}
+
+// 기존 날씨 문자열 파서 활용
+function parseWeatherDate(dateStr) {
+  const datePart = dateStr.slice(0, 10);
+  let timePart = dateStr.includes("오전")
+    ? "06:00"
+    : dateStr.includes("오후")
+      ? "18:00"
+      : dateStr.slice(11, 16);
+  return new Date(`${datePart}T${timePart}`);
+}
 export async function filterAndScoreSpots({
   allSpots,
   selectedOrigin,
@@ -220,62 +246,39 @@ export async function filterAndScoreSpots({
     let weatherScore = 1.0;
     let rainFactor = 1.0;
     let tempFactor = 1.0;
-    let targetWeather = null;
 
     const cacheKey = `${spot.nx}_${spot.ny}`;
     const townWeather = weatherCacheData ? weatherCacheData[cacheKey] : null;
+
+    let targetWeather = null; // 여기서 안전하게 선언
 
     if (townWeather) {
       const weatherArray =
         typeof townWeather === "string" ? JSON.parse(townWeather) : townWeather;
 
       if (Array.isArray(weatherArray) && weatherArray.length > 0) {
+        // 1. [정밀 매칭] 도착 예정 시간 계산
         const [depH, depM] = departureTime.split(":").map(Number);
-        const travelDateTime = new Date(targetQueryDate);
-        travelDateTime.setHours(depH, depM, 0, 0);
+        const arrivalDate = new Date(targetQueryDate);
+        arrivalDate.setHours(depH, depM, 0, 0);
 
-        targetWeather = weatherArray.reduce((closest, current) => {
-          let currentStr = current["예보시각"]
-            .replace("오전", "")
-            .replace("오후", "")
-            .replace(/\(.*?\)/g, "")
-            .trim();
-          if (currentStr.includes("하루 통합"))
-            currentStr = currentStr.replace("하루 통합", "12:00");
+        // travelTime 문자열에서 숫자 추출
+        const travelHours = parseFloat(travelTime.replace(/[^0-9.]/g, "")) || 0;
+        arrivalDate.setHours(arrivalDate.getHours() + travelHours);
 
-          const parts = currentStr.split(" ");
-          let forecastTime =
-            parts.length === 1
-              ? new Date(`${targetQueryDate} ${parts[0]}`)
-              : new Date(currentStr);
-          if (isNaN(forecastTime.getTime())) return closest;
+        // 2. [오타 수정] ffindBestWeather -> findBestWeather
+        targetWeather = findBestWeather(weatherArray, arrivalDate);
 
-          const closestTimeStr = closest["예보시각"]
-            .replace("오전", "")
-            .replace("오후", "")
-            .replace(/\(.*?\)/g, "")
-            .replace("하루 통합", "12:00")
-            .trim();
-          const closestTime =
-            closestTimeStr.split(" ").length === 1
-              ? new Date(`${targetQueryDate} ${closestTimeStr}`)
-              : new Date(closestTimeStr);
-
-          return Math.abs(travelDateTime - forecastTime) <
-            Math.abs(travelDateTime - closestTime)
-            ? current
-            : closest;
-        }, weatherArray[0]);
-
+        // 3. 점수 계산
         if (targetWeather) {
-          // 범위형 기온 및 단일 기온 파싱
           const rawTempStr = String(targetWeather["기온(TMP)"] || "");
           if (rawTempStr.includes("~")) {
             const temps = rawTempStr
               .split("~")
               .map((t) => parseFloat(t.replace(/[^0-9.-]/g, "")));
-            const avgTemp = (temps[0] + temps[1]) / 2;
-            localTempRaw = !isNaN(avgTemp) ? avgTemp : 22.0;
+            localTempRaw = !isNaN((temps[0] + temps[1]) / 2)
+              ? (temps[0] + temps[1]) / 2
+              : 22.0;
           } else {
             const numericTemp = parseFloat(rawTempStr.replace(/[^0-9.-]/g, ""));
             localTempRaw = !isNaN(numericTemp) ? numericTemp : 22.0;

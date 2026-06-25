@@ -411,6 +411,7 @@ function App() {
         userAgeNum: parseInt(age.replace(/[^0-9]/g, "")) || 20,
         weatherCacheData: weatherMap,
         regionAgeWeightsMap: ageWeightMap,
+        weatherCacheData: weatherMap,
       });
 
       if (finalCandidates.length === 0) {

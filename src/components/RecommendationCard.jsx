@@ -15,6 +15,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { recordUserAction } from "../utils/logger";
+import { findBestWeather } from "../utils/spotRecommender";
 
 export const RecommendationCard = (props) => {
   // 💡 props 전체를 받아서
