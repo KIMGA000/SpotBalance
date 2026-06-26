@@ -18,7 +18,6 @@ import { recordUserAction } from "../utils/logger";
 import { findBestWeather } from "../utils/spotRecommender";
 
 export const RecommendationCard = (props) => {
-  // 💡 props 전체를 받아서
   const {
     name,
     subtitle,
@@ -38,6 +37,8 @@ export const RecommendationCard = (props) => {
     spotScore,
     kakaoDist,
     kakaoTime,
+    haversineTime,
+    haversineDist,
     onCardClick,
     temp,
     selectedStyles,
@@ -51,7 +52,12 @@ export const RecommendationCard = (props) => {
     recSessionId,
     ...rest
   } = props;
-
+  console.log("Props Check:", {
+    kakaoDist,
+    kakaoTime,
+    haversineTime,
+    haversineDist,
+  });
   const getRestDaysText = (days) => {
     if (!days || days.length === 0) return "연중무휴";
 
@@ -89,6 +95,15 @@ export const RecommendationCard = (props) => {
     !image || image === "./600400.png" || image === "/600400.png"
       ? "/600400.png"
       : image;
+
+  const displayTime = kakaoTime || haversineTime;
+  const displayDist = kakaoDist || haversineDist;
+  const labelTime = kakaoTime
+    ? "🚘 카카오네비 예상 소요시간:"
+    : "🚘 하버사인 예상 소요시간:";
+  const labelDist = kakaoDist
+    ? "🛣️ 카카오네비 예상 실도로 거리:"
+    : "🛣️ 하버사인 예상 직선 거리:";
 
   // 날씨 아이콘 매칭 엔진
   const renderCardWeatherIcon = () => {
@@ -405,15 +420,15 @@ export const RecommendationCard = (props) => {
               </div>
               <div className="text-xs bg-[#6B5FD8]/5 p-3.5 rounded-xl border border-[#6B5FD8]/10 flex justify-between font-black text-[#2D2A4A]">
                 <span className="flex items-center gap-1">
-                  🚘 카카오맵 예상 소요시간:{" "}
+                  {labelTime}{" "}
                   <span className="text-[#6B5FD8] text-sm font-black">
-                    {kakaoTime ? `${kakaoTime}분` : "계산 중..."}
+                    {displayTime}분{" "}
                   </span>
                 </span>
                 <span className="flex items-center gap-1">
-                  🛣️ 카카오맵 예상 실도로 거리:{" "}
+                  {labelDist}
                   <span className="text-emerald-600 text-sm font-black">
-                    {kakaoDist ? `${kakaoDist}km` : "계산 중..."}
+                    {displayDist}km{" "}
                   </span>
                 </span>
               </div>

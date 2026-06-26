@@ -53,7 +53,6 @@ const TASTE_DATA_CONFIG = {
   culture: ["관광단지", "전시시설", "문화공원", "자연명소"],
   activity: ["레저", "웰니스", "생태", "동물원", "만들기"],
 };
-
 function HeaderWeather({ weather }) {
   if (!weather || !weather.text) return null;
   const renderWeatherIcon = () => {
@@ -104,6 +103,7 @@ function App() {
     temp: 0,
     icon: "cloud-sun",
   });
+  const [top10Routes, setTop10Routes] = useState([]);
 
   const ageOptions = [
     "10대",
@@ -210,33 +210,32 @@ function App() {
     const routePromises = top10Spots.map(async (spot, index) => {
       const destCoords = `${spot.lng},${spot.lat}`;
       try {
-        const response = await fetch(
+        // 1단계: 자동차 길찾기 호출
+        let response = await fetch(
           `https://apis-navi.kakaomobility.com/v1/directions?origin=${originCoords}&destination=${destCoords}&priority=TIME`,
           {
             method: "GET",
             headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
           },
         );
-        if (!response.ok) throw new Error("API 응답 지연");
-        const resData = await response.json();
 
-        if (
-          resData &&
-          resData.routes &&
-          resData.routes[0] &&
-          resData.routes[0].summary
-        ) {
+        let resData = await response.json();
+
+        // 최종 확인: 자동차든 도보든 경로 데이터가 있다면 처리
+        if (resData?.routes?.[0]?.summary) {
           const route = resData.routes[0];
           const realTimeMin = Math.round(route.summary.duration / 60);
           const realDistKm = (route.summary.distance / 1000).toFixed(1);
 
           const linePoints = [];
-          if (route.sections && route.sections[0] && route.sections[0].roads) {
+          if (route.sections?.[0]?.roads) {
             route.sections[0].roads.forEach((road) => {
-              const vertexes = road.vertexes;
-              if (vertexes) {
-                for (let i = 0; i < vertexes.length; i += 2) {
-                  linePoints.push({ lat: vertexes[i + 1], lng: vertexes[i] });
+              if (road.vertexes) {
+                for (let i = 0; i < road.vertexes.length; i += 2) {
+                  linePoints.push({
+                    lat: road.vertexes[i + 1],
+                    lng: road.vertexes[i],
+                  });
                 }
               }
             });
@@ -249,18 +248,31 @@ function App() {
             path: linePoints,
           };
         } else {
-          throw new Error("경로 데이터 파싱 누수");
+          throw new Error("경로 데이터 없음");
         }
       } catch (e) {
+        //console.error("❌ 카카오 API 호출 상세 에러:", e);
         console.warn(
           `⚠️ [카카오 가드 발동] "${spot.name}" 노선 하버사인 대체 매핑 우회`,
         );
-        const fallbackMin = Math.round(parseFloat(spot.duration || "1.5") * 60);
-        const fallbackKm = parseFloat(spot.distance || "45");
+        const travelDate = new Date(); // 혹은 전달받은 날짜 사용
+        const dayOfWeek = travelDate.getDay();
+        const isWeekendOrFriday = [0, 5, 6].includes(dayOfWeek);
+        const currentSpeed = isWeekendOrFriday ? 60 : 70; // 금토일 60km/h, 월~목 70km/h
+
+        // spot.distance는 하버사인으로 계산된 거리(km)라고 가정
+        const distVal = parseFloat(spot.distance || "0");
+
+        // 속도(km/h)를 이용해 시간(분) 계산: (거리 / 속도) * 60
+        const timeVal =
+          distVal > 0 ? Math.round((distVal / currentSpeed) * 60) : 0;
+
         return {
           index,
-          kakaoTime: fallbackMin > 0 ? fallbackMin : 50,
-          kakaoDist: fallbackKm > 0 ? fallbackKm : 35.5,
+          kakaoTime: null,
+          kakaoDist: null,
+          haversineTime: timeVal, // 요일별 속도가 반영된 계산값
+          haversineDist: distVal,
           path: [
             { lat: selectedOrigin.lat, lng: selectedOrigin.lng },
             { lat: spot.lat, lng: spot.lng },
@@ -268,25 +280,7 @@ function App() {
         };
       }
     });
-
-    const settledRoutes = await Promise.all(routePromises);
-    const updatedRoutesMap = {};
-
-    setRecommendations((prev) => {
-      const newRecommendations = [...prev];
-      settledRoutes.forEach((routeData) => {
-        if (routeData) {
-          if (newRecommendations[routeData.index]) {
-            newRecommendations[routeData.index].duration = routeData.kakaoTime;
-            newRecommendations[routeData.index].distance = routeData.kakaoDist;
-          }
-          updatedRoutesMap[routeData.index] = routeData.path;
-        }
-      });
-      return newRecommendations;
-    });
-
-    setKakaoRoutesMaster(updatedRoutesMap);
+    return await Promise.all(routePromises);
   };
 
   // 알고리즘 연산 위임 파이프라인
@@ -421,16 +415,48 @@ function App() {
         return;
       }
 
-      // 4. 결과 처리
-      const finalSorted = finalCandidates
+      // 1. 결과 처리
+      const candidatePool = finalCandidates
         .sort((a, b) => b.spotScore - a.spotScore)
-        .slice(0, 10);
+        .slice(0, 15);
 
-      setRecommendations(finalSorted);
+      // 2. 경로 데이터를 모두 불러옵니다.
+      const allRoutes = await fetchAllTop10KakaoRoutes(candidatePool);
+
+      // 3. 시간 조건(travelTime) 이내인 것들만 2차 필터링 & 정렬
+      const validatedTop10 = candidatePool
+        .map((spot, index) => {
+          const route = allRoutes.find((r) => r.index === index);
+          // 시간(분)을 60으로 나눠서 시간 단위로 환산
+          const durationHours =
+            (route?.kakaoTime || route?.haversineTime / 60) / 60;
+          return { ...spot, durationHours, routeData: route };
+        })
+        .filter((spot) => spot.durationHours <= parseFloat(travelTime)) // 2시간 이내 조건 재검증
+        .slice(0, 10); // 최종 10개만 확정!
+
+      // 최소 추천 관광지 3개 미만이라면  나옴)
+      if (validatedTop10.length < 3) {
+        console.log("⚠️ 필터링 후 남은 명소 개수:", validatedTop10.length);
+        alert(
+          `조건을 만족하는 명소가 ${validatedTop10.length}개 발견되었습니다.`,
+        );
+      }
+
+      // 4. 상태 저장
+      setRecommendations(validatedTop10);
       setVisibleCount(3);
       setSelectedPlaceIndex(0);
-
-      const logEntries = finalSorted.map((spot, index) => ({
+      try {
+        const routesFromValidated = validatedTop10.map((spot, index) => ({
+          ...spot.routeData,
+          index: index, // 인덱스 매칭을 위해 필수
+        }));
+        setTop10Routes(routesFromValidated);
+      } catch (e) {
+        console.error("경로 데이터 수집 실패:", e);
+      }
+      const logEntries = validatedTop10.map((spot, index) => ({
         spot_id: String(spot.id),
         user_id: userId,
         rec_session_id: searchLog.id,
@@ -447,7 +473,6 @@ function App() {
           console.log("추천 로그 기록 완료");
         });
 
-      await fetchAllTop10KakaoRoutes(finalSorted);
       showScreen("screen-result");
     } catch (err) {
       console.error("추천 데이터 파이프라인 크래시:", err);
@@ -648,24 +673,30 @@ function App() {
             </h2>
           </div>
           <div className="w-full max-w-4xl space-y-4">
-            {recommendations.slice(0, visibleCount).map((item, index) => (
-              <RecommendationCard
-                key={index}
-                rank={index + 1}
-                {...item}
-                temp={item.temp}
-                kakaoDist={item.distance}
-                kakaoTime={item.duration}
-                startOrigin={selectedOrigin}
-                travelDate={travelDate}
-                departureTime={departureTime}
-                selectedStyles={selectedStyles}
-                age={age}
-                gender={gender}
-                recSessionId={recSessionId}
-                onCardClick={() => setSelectedPlaceIndex(index)}
-              />
-            ))}
+            {recommendations.slice(0, visibleCount).map((item, index) => {
+              const routeData =
+                top10Routes.find((r) => r.index === index) || {};
+              return (
+                <RecommendationCard
+                  key={item.id}
+                  rank={index + 1}
+                  {...item}
+                  temp={item.temp}
+                  kakaoDist={routeData.kakaoDist}
+                  kakaoTime={routeData.kakaoTime}
+                  haversineTime={routeData.haversineTime}
+                  haversineDist={routeData.haversineDist}
+                  startOrigin={selectedOrigin}
+                  travelDate={travelDate}
+                  departureTime={departureTime}
+                  selectedStyles={selectedStyles}
+                  age={age}
+                  gender={gender}
+                  recSessionId={recSessionId}
+                  onCardClick={() => setSelectedPlaceIndex(index)}
+                />
+              );
+            })}
             <div className="flex flex-col gap-4 mt-10 items-center">
               {visibleCount < recommendations.length ? (
                 <button
