@@ -32,9 +32,7 @@ export const MultiTastePicker = ({ selectedSubs = [], onSubToggle }) => {
   const toggleMain = (mainKey) => {
     if (selectedMains.includes(mainKey)) {
       setSelectedMains(selectedMains.filter((k) => k !== mainKey));
-      TASTE_DATA[mainKey].subs.forEach((sub) => {
-        if (selectedSubs.includes(sub)) onSubToggle(sub);
-      });
+      onSubToggle(TASTE_DATA[mainKey].subs);
     } else {
       setSelectedMains([...selectedMains, mainKey]);
     }

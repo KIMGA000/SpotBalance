@@ -443,8 +443,27 @@ function App() {
         );
       }
 
-      // 4. 상태 저장
-      setRecommendations(validatedTop10);
+      // 4. 상태 저장 전
+      const recommendationsWithData = validatedTop10.map((spot) => ({
+        ...spot,
+        // duration: 분 단위로 변환 (durationHours * 60)
+        duration: Math.round(spot.durationHours * 60),
+        // distance: 카카오 API값이 있으면 우선 사용, 없으면 하버사인 거리 사용
+        distance:
+          spot.routeData?.kakaoDist || spot.routeData?.haversineDist || 0,
+      }));
+
+      // 5. 상태 저장
+      setRecommendations(recommendationsWithData);
+
+      // 지도용 마스터 객체 만들기
+      const newRoutesMaster = {};
+      validatedTop10.forEach((spot, index) => {
+        if (spot.routeData?.path) {
+          newRoutesMaster[index] = spot.routeData.path;
+        }
+      });
+      setKakaoRoutesMaster(newRoutesMaster);
       setVisibleCount(3);
       setSelectedPlaceIndex(0);
       try {
@@ -493,11 +512,38 @@ function App() {
 
     await supabase.from("recommendation_logs").insert(logs);
   };
-  const handleStyleToggle = (subName) => {
-    if (selectedStyles.includes(subName)) {
-      setSelectedStyles(selectedStyles.filter((item) => item !== subName));
+
+  const toggleMainCategory = (mainKey) => {
+    const subCategories = TASTE_DATA_CONFIG[mainKey]; // ['바다', '산', ...]
+    const isAllSelected = subCategories.every((sub) =>
+      selectedStyles.includes(sub),
+    );
+
+    if (isAllSelected) {
+      // 이미 다 선택되어 있으면 -> 전부 삭제
+      setSelectedStyles(
+        selectedStyles.filter((s) => !subCategories.includes(s)),
+      );
     } else {
-      setSelectedStyles([...selectedStyles, subName]);
+      // 일부만 선택되어 있거나 하나도 없으면 -> 전부 추가 (중복 제거)
+      const newStyles = new Set([...selectedStyles, ...subCategories]);
+      setSelectedStyles(Array.from(newStyles));
+    }
+  };
+
+  const handleStyleToggle = (subName) => {
+    // 만약 subName이 '배열'이라면? (한꺼번에 삭제)
+    if (Array.isArray(subName)) {
+      setSelectedStyles((prev) =>
+        prev.filter((item) => !subName.includes(item)),
+      );
+    } else {
+      // 기존처럼 단일 삭제/추가
+      if (selectedStyles.includes(subName)) {
+        setSelectedStyles(selectedStyles.filter((item) => item !== subName));
+      } else {
+        setSelectedStyles([...selectedStyles, subName]);
+      }
     }
   };
 
@@ -786,7 +832,7 @@ function App() {
                   Total Journey
                 </div>
                 <div className="text-[11px] sb-font-h opacity-80 mb-1 truncate">
-                  선택지: {recommendations[selectedPlaceIndex]?.name}
+                  선택지 : {recommendations[selectedPlaceIndex]?.name}
                 </div>
                 <div className="text-4xl sb-font-h italic">
                   {recommendations[selectedPlaceIndex]?.duration
@@ -801,6 +847,21 @@ function App() {
             )}
           </div>
           <div className="flex-grow relative bg-white overflow-hidden">
+            {(() => {
+              console.log(
+                "🛠 [지도 디버그] 현재 선택된 인덱스:",
+                selectedPlaceIndex,
+              );
+              console.log(
+                "🛠 [지도 디버그] 현재 Master 데이터:",
+                kakaoRoutesMaster,
+              );
+              console.log(
+                "🛠 [지도 디버그] 전달되는 경로:",
+                kakaoRoutesMaster[selectedPlaceIndex],
+              );
+              return null;
+            })()}
             {recommendations.length > 0 ? (
               <KakaoMapView
                 startOrigin={selectedOrigin}
