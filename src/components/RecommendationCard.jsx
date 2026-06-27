@@ -99,10 +99,10 @@ export const RecommendationCard = (props) => {
   const displayTime = kakaoTime || haversineTime;
   const displayDist = kakaoDist || haversineDist;
   const labelTime = kakaoTime
-    ? "🚘 카카오네비 예상 소요시간:"
+    ? "🚘 예상 소요시간:"
     : "🚘 하버사인 예상 소요시간:";
   const labelDist = kakaoDist
-    ? "🛣️ 카카오네비 예상 실도로 거리:"
+    ? "🛣️ 예상 실도로 거리:"
     : "🛣️ 하버사인 예상 직선 거리:";
 
   // 날씨 아이콘 매칭 엔진
