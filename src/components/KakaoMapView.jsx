@@ -99,7 +99,11 @@ export const KakaoMapView = ({ startOrigin, targetSpot, routeLinePath }) => {
       const linePath = routeLinePath.map(
         (pt) => new window.kakao.maps.LatLng(Number(pt.lat), Number(pt.lng)),
       );
-
+      const destPos = new window.kakao.maps.LatLng(
+        Number(targetSpot.lat),
+        Number(targetSpot.lng),
+      );
+      linePath.push(destPos);
       const polyline = new window.kakao.maps.Polyline({
         path: linePath,
         strokeWeight: 6,

@@ -255,29 +255,54 @@ function App() {
         console.warn(
           `⚠️ [카카오 가드 발동] "${spot.name}" 노선 하버사인 대체 매핑 우회`,
         );
-        const travelDate = new Date(); // 혹은 전달받은 날짜 사용
-        const dayOfWeek = travelDate.getDay();
-        const isWeekendOrFriday = [0, 5, 6].includes(dayOfWeek);
-        const currentSpeed = isWeekendOrFriday ? 60 : 70; // 금토일 60km/h, 월~목 70km/h
+        try {
+          // OSRM API 호출 (좌표는 롱,렛 순서)
+          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${selectedOrigin.lng},${selectedOrigin.lat};${spot.lng},${spot.lat}?overview=full&geometries=geojson`;
+          const osrmRes = await fetch(osrmUrl);
+          const osrmData = await osrmRes.json();
 
-        // spot.distance는 하버사인으로 계산된 거리(km)라고 가정
-        const distVal = parseFloat(spot.distance || "0");
+          if (osrmData.routes && osrmData.routes.length > 0) {
+            const route = osrmData.routes[0];
+            // OSRM은 geometry.coordinates에 [경도, 위도] 배열을 줍니다.
+            const path = route.geometry.coordinates.map((p) => ({
+              lat: p[1],
+              lng: p[0],
+            }));
+            const osrmTimeMin = Math.round(route.duration / 60);
+            const osrmDistKm = (route.distance / 1000).toFixed(1);
+            return {
+              index,
+              kakaoTime: osrmTimeMin, // 하버사인 대신 OSRM의 정확한 시간 사용
+              kakaoDist: osrmDistKm,
+              path: path,
+            };
+          }
+          throw new Error("OSRM 경로 없음");
+        } catch (osrmErr) {
+          const travelDate = new Date(); // 혹은 전달받은 날짜 사용
+          const dayOfWeek = travelDate.getDay();
+          const isWeekendOrFriday = [0, 5, 6].includes(dayOfWeek);
+          const currentSpeed = isWeekendOrFriday ? 60 : 70; // 금토일 60km/h, 월~목 70km/h
 
-        // 속도(km/h)를 이용해 시간(분) 계산: (거리 / 속도) * 60
-        const timeVal =
-          distVal > 0 ? Math.round((distVal / currentSpeed) * 60) : 0;
+          // spot.distance는 하버사인으로 계산된 거리(km)라고 가정
+          const distVal = parseFloat(spot.distance || "0");
 
-        return {
-          index,
-          kakaoTime: null,
-          kakaoDist: null,
-          haversineTime: timeVal, // 요일별 속도가 반영된 계산값
-          haversineDist: distVal,
-          path: [
-            { lat: selectedOrigin.lat, lng: selectedOrigin.lng },
-            { lat: spot.lat, lng: spot.lng },
-          ],
-        };
+          // 속도(km/h)를 이용해 시간(분) 계산: (거리 / 속도) * 60
+          const timeVal =
+            distVal > 0 ? Math.round((distVal / currentSpeed) * 60) : 0;
+
+          return {
+            index,
+            kakaoTime: null,
+            kakaoDist: null,
+            haversineTime: timeVal, // 요일별 속도가 반영된 계산값
+            haversineDist: distVal,
+            path: [
+              { lat: selectedOrigin.lat, lng: selectedOrigin.lng },
+              { lat: spot.lat, lng: spot.lng },
+            ],
+          };
+        }
       }
     });
     return await Promise.all(routePromises);
@@ -847,27 +872,10 @@ function App() {
             )}
           </div>
           <div className="flex-grow relative bg-white overflow-hidden">
-            {(() => {
-              console.log(
-                "🛠 [지도 디버그] 현재 선택된 인덱스:",
-                selectedPlaceIndex,
-              );
-              console.log(
-                "🛠 [지도 디버그] 현재 Master 데이터:",
-                kakaoRoutesMaster,
-              );
-              console.log(
-                "🛠 [지도 디버그] 전달되는 경로:",
-                kakaoRoutesMaster[selectedPlaceIndex],
-              );
-              return null;
-            })()}
             {recommendations.length > 0 ? (
               <KakaoMapView
                 startOrigin={selectedOrigin}
-                targetSpot={
-                  recommendations[selectedPlaceIndex] || recommendations[0]
-                }
+                targetSpot={recommendations[selectedPlaceIndex]}
                 routeLinePath={kakaoRoutesMaster[selectedPlaceIndex] || []}
               />
             ) : (
