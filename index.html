@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SpotBalance - 스마트한 강원도 여행</title>
     <link rel="icon" href="data:;base64,iVBORw0KGgo=" />
+
     <script src="https://cdn.tailwindcss.com"></script>
 
     <link
@@ -16,10 +17,35 @@
     <link
       href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap"
       rel="stylesheet" />
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+
+    <style>
+      body {
+        font-family: "Pretendard Variable", sans-serif;
+      }
+      .sb-font-h {
+        font-family: "Montserrat", sans-serif;
+      }
+      @keyframes twinkling {
+        0% {
+          opacity: 0.2;
+          transform: scale(0.8);
+        }
+        100% {
+          opacity: 0.8;
+          transform: scale(1.2);
+        }
+      }
+      .manual-star {
+        animation: twinkling var(--star-duration) ease-in-out infinite alternate;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
-
     <script type="module" src="./src/main.jsx"></script>
   </body>
 </html>
