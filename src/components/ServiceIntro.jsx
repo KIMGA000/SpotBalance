@@ -125,13 +125,13 @@ export function ServiceIntro({ onBack }) {
                 {
                   icon: "ti-sun-wind",
                   color: "text-[#F4C84A]",
-                  label: "기상 상태 실시간 반영",
+                  label: "기상 상태 반영",
                   desc: "기상 데이터를 분석하여 맑은 날에는 실외와 실내 모두를, 날씨가 궂은 날에는 실내 관광지와 아늑한 장소를 우선 순위로 밸런싱합니다.",
                 },
                 {
                   icon: "ti-users",
                   color: "text-[#0077B6]",
-                  label: "실시간 유동인구 예측",
+                  label: "유동인구 예측",
                   desc: "강원도 관광객 혼잡 추이율 데이터로 혼잡 지수를 예측합니다. 인파에 치이는 스트레스 없이 여유로운 힐링을 보낼 수 있는 숨겨진 명당을 발굴합니다.",
                 },
                 {

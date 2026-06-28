@@ -161,7 +161,6 @@ serve(async (req) => {
       );
     }
 
-    // 🔮 [모드 2] 유저 실시간 관광지 추천 가드 모드 (기존 동일)
     const { data: cache } = await supabaseClient.from("weather_town_cache")
       .select("*").eq("county", county).eq("county_district", district)
       .single();
