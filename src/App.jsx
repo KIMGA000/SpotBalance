@@ -409,7 +409,8 @@ function App() {
       // 2. 데이터 가공 (맵핑)
       const weatherMap = {};
       weatherCache?.forEach((item) => {
-        weatherMap[`${item.nx}_${item.ny}`] = item.weather_data || null;
+        weatherMap[`${item.county}_${item.county_district}`] =
+          item.weather_data || null;
       });
 
       const ageWeightMap = {};

@@ -71,7 +71,7 @@ export function getHaversineDistance(lat1, lon1, lat2, lon2) {
 
 function calculateTemperaturePenalty(month, tempValue) {
   if (tempValue === null) return 0.1;
-  if (tempValue >= 33 || tempValue <= -1) return 0.6;
+  if (tempValue >= 33 || tempValue <= -5) return 0.6;
   if (tempValue >= 15 && tempValue <= 25) return 1.0;
 
   if (
@@ -247,7 +247,7 @@ export async function filterAndScoreSpots({
     let rainFactor = 1.0;
     let tempFactor = 1.0;
 
-    const cacheKey = `${spot.nx}_${spot.ny}`;
+    const cacheKey = `${spot.county}_${spot.county_district}`;
     const townWeather = weatherCacheData ? weatherCacheData[cacheKey] : null;
 
     let targetWeather = null; // 여기서 안전하게 선언
