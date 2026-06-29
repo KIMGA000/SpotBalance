@@ -1,10 +1,10 @@
 ## SpotBalance : 혼잡 없이, 나답게. 데이터로 증명된 최적의 강원도 여행지 추천 서비스
-> **SpotBalance**는 복잡한 검색 과정 없이, 사용자 맞춤형 데이터와 실시간 환경 정보를 결합하여 **'지금 가장 쾌적하게 여행할 수 있는 강원도 관광지'**를 추천해 주는 스마트 여행 큐레이션 서비스입니다. 인기 관광지의 긴 대기 줄과 날씨 고민 없이, 오직 데이터로 증명된 가장 완벽한 여행지를 제안합니다.
+> **SpotBalance**는 복잡한 검색 과정 없이, 사용자 맞춤형 데이터와 실시간 환경 정보를 결합하여 '지금 가장 쾌적하게 여행할 수 있는 강원도 관광지'를 추천해 주는 스마트 여행 큐레이션 서비스입니다. 인기 관광지의 긴 대기 줄과 날씨 고민 없이, 오직 데이터로 증명된 가장 완벽한 여행지를 제안합니다.
 
 ## Tech Stack
 * **Frontend:** Next.js, Tailwind CSS
 * **Backend:** Supabase
-* **Data Pipelines:** pg_cron, 공공데이터포털 API
+* **Data Pipelines:** pg_cron, 공공데이터 API 연
 * **Deployment:** Supabase Edge Functions
 
 ### 1. 문제 정의(Why)
