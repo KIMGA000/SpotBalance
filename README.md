@@ -4,7 +4,7 @@
 ## Tech Stack
 * **Frontend:** Next.js, Tailwind CSS
 * **Backend:** Supabase
-* **Data Pipelines:** pg_cron, 공공데이터 API 연
+* **Data Pipelines:** pg_cron, 공공데이터 API 연동
 * **Deployment:** Supabase Edge Functions
 ---
 ## 로컬 개발 환경 실행 방법
@@ -17,7 +17,7 @@ cd spot-balance
 npm install
 ```
 ### 2. 환경 변수 파일 생성
-프로젝트 루트에 .env 파일을 생성하고 다음 정보를 입력하세요.
+프로젝트 루트에 .env 파일을 생성하고 다음 정보를 입력합니다.
 ```bash
 SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
