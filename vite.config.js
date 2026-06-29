@@ -9,7 +9,7 @@ export default defineConfig({
     minify: "terser",
     terserOptions: {
       compress: {
-        drop_console: env.VITE_KEEP_CONSOLE !== "true", // 콘솔 로그 삭제
+        drop_console: true, // 콘솔 로그 삭제
         drop_debugger: true, // 디버거 삭제
       },
     },
