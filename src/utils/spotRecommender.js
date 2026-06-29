@@ -319,8 +319,7 @@ export async function filterAndScoreSpots({
     const congestionRate = trendRecord
       ? parseFloat(trendRecord.visitor_count)
       : 0;
-    const congestionScore = (100 - congestionRate) / 100;
-
+    const congestionScore = Math.max(0.01, (100 - congestionRate) / 100);
     const ageGroupKey =
       userAgeNum >= 70 ? "age70" : `age${Math.floor(userAgeNum / 10) * 10}`;
     const targetWeightField = `${ageGroupKey}_weight`;
