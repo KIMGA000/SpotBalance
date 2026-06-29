@@ -4,8 +4,15 @@
 ## Tech Stack
 * **Frontend:** Next.js, Tailwind CSS
 * **Backend:** Supabase
-* **Data Pipelines:** pg_cron, 공공데이터 API 연동
-* **Deployment:** Supabase Edge Functions
+* **Data Pipeline:** pg_cron, Supabase Edge Functions
+* **External APIs & Data Sources:**
+  * 한국관광공사 관광지 집중률 방문자 추이 예측 정보
+  * 한국관광공사 지역별 관광 다양성 데이터
+  * 한국관광공사 국문 관광정보 서비스(GW)
+  * 기상청 단기예보 조회서비스
+  * 기상청 중기예보 조회서비스
+  * 카카오맵 API
+  * 카카오내비 API
 ---
 ## 로컬 개발 환경 실행 방법
 
